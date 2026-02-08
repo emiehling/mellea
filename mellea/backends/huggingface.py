@@ -11,7 +11,7 @@ import datetime
 import functools
 import json
 import threading
-from collections.abc import Callable, Coroutine, Sequence
+from collections.abc import Awaitable, Callable, Coroutine, Sequence
 from typing import Any, overload
 
 import granite_common
@@ -1114,6 +1114,353 @@ class LocalHFBackend(FormatterBackend, AdapterMixin):
             results.append(result)
 
         return results
+
+    # region backtracking generation
+    async def _generate_with_backtracking(
+            self,
+            action: Component | CBlock,
+            ctx: Context,
+            config: "BacktrackingConfig",
+            verify_prefix: Callable[[str], Awaitable[bool]] | None,
+            *,
+            format: type[BaseModelSubclass] | None = None,
+            model_options: dict[str, Any] | None = None,
+            tool_calls: bool = False,
+    ) -> tuple[ModelOutputThunk, Context, "BacktrackingMetrics"]:
+        """Generate with backtracking support.
+
+        This method performs tokenwise decoding with bounded backtracking and local resampling. When the process
+        verifier flags a prefix as unlikely to succeed, the method truncates the last `stride` tokens and continues from
+        the earlier prefix using the existing KV cache (via ``DynamicCache.crop``).
+
+        Args:
+            action: The action component.
+            ctx: The generation context.
+            config: Backtracking configuration.
+            verify_prefix: Optional async callback that evaluates the current prefix text and returns True if it passes.
+                Built by the strategy layer from process_verifier + threshold.
+            format: Output format for structured outputs (Pydantic model).
+                When provided, an outlines ``RegexLogitsProcessor`` constrains each token to the schema's grammar.
+            model_options: Model options.
+            tool_calls: Whether to use tool calls.
+
+        Returns:
+            Tuple of (result, context, metrics).
+        """
+        from ..stdlib.sampling.backtracking import BacktrackingConfig, BacktrackingMetrics
+
+        flog = FancyLogger.get_logger()
+        model_opts = self._simplify_and_merge(model_options)
+
+        metrics = BacktrackingMetrics()
+
+        if not ctx.is_chat_context:
+            raise ValueError("Backtracking generation requires a chat context.")
+
+        #prompt
+        system_prompt = model_opts.get(ModelOption.SYSTEM_PROMPT, None)
+        ctx_as_chat = to_chat(action, ctx, self.formatter, system_prompt)
+
+        seed = model_opts.get(ModelOption.SEED, None)
+        if seed is not None:
+            set_seed(seed)
+
+        input_text = self._tokenizer.apply_chat_template(
+            ctx_as_chat,
+            add_generation_prompt=True,
+            tokenize=False,
+            **self._make_backend_specific_and_remove(model_opts),
+        )
+        input_ids = self._tokenizer.encode(input_text, return_tensors="pt").to(self._device)
+        prompt_len: int = input_ids.shape[1]
+
+        max_new_tokens = model_opts.get(ModelOption.MAX_NEW_TOKENS, 256)
+        temperature = model_opts.get(ModelOption.TEMPERATURE, 1.0)
+
+        # structured output logits processor
+        logits_processor = None
+        if format is not None:
+            schema: dict[str, Any] = format.model_json_schema()
+            schema_json: str = json.dumps(schema)
+            regex_str: str = outlines_core.fsm.json_schema.build_regex_from_schema(
+                schema_json
+            )
+            from outlines.models.transformers import TransformerTokenizer
+            from outlines.processors.structured import RegexLogitsProcessor
+
+            logits_processor = RegexLogitsProcessor(
+                regex_str, tokenizer=TransformerTokenizer(self._tokenizer)
+            )
+
+        def _make_fresh_logits_processor():
+            """Reconstruct the outlines processor to reset its state.
+
+            Called after a backtrack so the processor's internal state matches the (now shorter) token sequence.
+            """
+            if format is None:
+                return None
+            from outlines.models.transformers import TransformerTokenizer
+            from outlines.processors.structured import RegexLogitsProcessor
+
+            return RegexLogitsProcessor(
+                regex_str, tokenizer=TransformerTokenizer(self._tokenizer)
+            )
+
+        # prompt prefill
+        flog.info("BacktrackingGeneration: Prefilling prompt...")
+        with torch.no_grad():
+            outputs = self._model(
+                input_ids,
+                use_cache=True,
+                return_dict=True,
+            )
+            kv_cache = outputs.past_key_values
+            # capture last-position logits from prefill; these are the logits for the first generated token to avoid a
+            # redundant full-prompt forward pass at step 0
+            next_logits = outputs.logits[:, -1, :]
+
+        # generation state
+        generated_tokens: list[int] = []
+        remaining_quota = config.backtrack_quota
+        argmax_countdown = 0
+        failed_prefix_hashes: set[int] = set()
+        # flag: when True the next iteration already has logits in``next_logits`` and should not run a forward pass
+        have_logits = True
+
+        # newline token IDs for cadence check
+        newline_token_ids: set[int] = set()
+        for char in ["\n", "\r\n", "\r"]:
+            encoded = self._tokenizer.encode(char, add_special_tokens=False)
+            newline_token_ids.update(encoded)
+
+        eos_token_id = self._tokenizer.eos_token_id
+
+        flog.info(
+            f"BacktrackingGeneration: Starting generation "
+            f"(quota={config.backtrack_quota}, stride={config.backtrack_stride})"
+        )
+
+        # main decoding loop
+        for step in range(max_new_tokens):
+            # compute next-token logits
+            if not have_logits:
+                with torch.no_grad():
+                    current_input = torch.tensor(
+                        [[generated_tokens[-1]]]
+                    ).to(self._device)
+                    outputs = self._model(
+                        current_input,
+                        past_key_values=kv_cache,
+                        use_cache=True,
+                        return_dict=True,
+                    )
+                    next_logits = outputs.logits[:, -1, :]
+                    kv_cache = outputs.past_key_values
+
+            logits = next_logits
+            have_logits = False  # consumed; must recompute next iteration
+
+            # apply structured output constraints
+            if logits_processor is not None:
+                if len(generated_tokens) > 0:
+                    all_ids = torch.cat([
+                        input_ids,
+                        torch.tensor([generated_tokens], device=self._device),
+                    ], dim=1)
+                else:
+                    all_ids = input_ids
+                logits = logits_processor(all_ids, logits)
+
+            # sample token
+            if argmax_countdown > 0 or temperature == 0:
+                next_token = logits.argmax(dim=-1).item()
+                argmax_countdown = max(0, argmax_countdown - 1)
+
+                # check if argmax would recreate a known-bad prefix; if so, sample with the resampling loop
+                tentative_tokens = generated_tokens + [next_token]
+                tentative_text = self._tokenizer.decode(tentative_tokens, skip_special_tokens=True)
+                if hash(tentative_text) in failed_prefix_hashes:
+                    flog.debug(
+                        "BacktrackingGeneration: Argmax would recreate known-bad prefix, resampling"
+                    )
+                    probs = torch.softmax(logits / temperature, dim=-1) if temperature > 0 else None
+                    if probs is not None:
+                        resample_count = 0
+                        masked_probs = probs.clone()
+                        masked_probs[0, next_token] = 0.0
+                        prob_sum = masked_probs.sum()
+                        if prob_sum > 0:
+                            masked_probs = masked_probs / prob_sum
+                            resample_count = 1
+
+                            while resample_count < config.max_token_resamples:
+                                next_token = torch.multinomial(masked_probs, num_samples=1).item()
+                                tentative_tokens = generated_tokens + [next_token]
+                                tentative_text = self._tokenizer.decode(tentative_tokens, skip_special_tokens=True)
+                                if hash(tentative_text) in failed_prefix_hashes:
+                                    masked_probs[0, next_token] = 0.0
+                                    prob_sum = masked_probs.sum()
+                                    if prob_sum > 0:
+                                        masked_probs = masked_probs / prob_sum
+                                    else:
+                                        next_token = probs.argmax(dim=-1).item()
+                                        break
+                                    resample_count += 1
+                                else:
+                                    break
+
+                        metrics.num_token_resamples += resample_count
+            else:
+                probs = torch.softmax(logits / temperature, dim=-1)
+
+                # local resampling loop
+                resample_count = 0
+                masked_probs = probs.clone()
+
+                while resample_count < config.max_token_resamples:
+                    next_token = torch.multinomial(masked_probs, num_samples=1).item()
+
+                    # check if token recreates a known-bad prefix
+                    tentative_tokens = generated_tokens + [next_token]
+                    tentative_text = self._tokenizer.decode(tentative_tokens, skip_special_tokens=True)
+                    tentative_hash = hash(tentative_text)
+
+                    if tentative_hash in failed_prefix_hashes:
+                        # mask out this token and resample from same logits
+                        masked_probs[0, next_token] = 0.0
+                        prob_sum = masked_probs.sum()
+                        if prob_sum > 0:
+                            masked_probs = masked_probs / prob_sum
+                        else:
+                            # all options exhausted; fall back to argmax
+                            next_token = probs.argmax(dim=-1).item()
+                            break
+                        resample_count += 1
+                    else:
+                        break
+
+                metrics.num_token_resamples += resample_count
+
+            generated_tokens.append(next_token)
+
+            if next_token == eos_token_id:
+                flog.info("BacktrackingGeneration: EOS token reached.")
+                break
+
+            # check cadence
+            should_verify = False
+            if config.check_cadence == "token":
+                should_verify = True
+            elif config.check_cadence == "newline":
+                should_verify = next_token in newline_token_ids
+            elif config.check_cadence == "boundary":
+                token_text = self._tokenizer.decode([next_token])
+                should_verify = any(p in token_text for p in [".", "!", "?", ";"])
+
+            # run verifier and backtrack if needed
+            if should_verify and verify_prefix is not None and remaining_quota > 0:
+                prefix_text = self._tokenizer.decode(
+                    generated_tokens, skip_special_tokens=True
+                )
+                prefix_hash = hash(prefix_text)
+
+                if prefix_hash in failed_prefix_hashes:
+                    flog.debug("BacktrackingGeneration: Skipping already-failed prefix")
+                    continue
+
+                metrics.num_verifier_calls += 1
+                passed = await verify_prefix(prefix_text)
+
+                if not passed:
+                    flog.info(
+                        f"BacktrackingGeneration: Verifier failed at step {step}. "
+                        f"Backtracking {config.backtrack_stride} tokens."
+                    )
+
+                    failed_prefix_hashes.add(prefix_hash)
+
+                    # backtrack tokens
+                    tokens_to_remove = min(
+                        config.backtrack_stride, len(generated_tokens)
+                    )
+                    generated_tokens = generated_tokens[:-tokens_to_remove]
+                    metrics.num_backtracks += 1
+                    metrics.total_backtracked_tokens += tokens_to_remove
+                    remaining_quota -= 1
+
+                    # restore KV cache via crop
+                    # The KV cache has positions for the prompt + all generated tokens (including the ones we just removed).
+                    # Crop to the target length to discard the backtracked positions.
+                    target_cache_len = prompt_len + len(generated_tokens)
+                    kv_cache.crop(target_cache_len)
+
+                    # If we backtracked all the way to the prompt, recover first-token logits with a single cheap
+                    # forward pass of the last prompt token
+                    if len(generated_tokens) == 0:
+                        kv_cache.crop(prompt_len - 1)
+                        with torch.no_grad():
+                            last_prompt_tok = input_ids[:, -1:]
+                            outputs = self._model(
+                                last_prompt_tok,
+                                past_key_values=kv_cache,
+                                use_cache=True,
+                                return_dict=True,
+                            )
+                            kv_cache = outputs.past_key_values
+                            next_logits = outputs.logits[:, -1, :]
+                        have_logits = True
+
+                    # reset outlines processor state
+                    if logits_processor is not None:
+                        logits_processor = _make_fresh_logits_processor()
+
+                    # argmax mode after backtrack
+                    if config.redo_backtracked_with_argmax:
+                        argmax_countdown = config.argmax_length
+
+                    flog.info(
+                        f"BacktrackingGeneration: Restored to "
+                        f"{len(generated_tokens)} tokens. "
+                        f"Remaining quota: {remaining_quota}"
+                    )
+
+        # finalize
+        final_text = self._tokenizer.decode(
+            generated_tokens, skip_special_tokens=True
+        )
+        metrics.tokens_generated_final = len(generated_tokens)
+
+        flog.info(
+            f"BacktrackingGeneration: Complete. "
+            f"Generated {len(generated_tokens)} tokens, "
+            f"{metrics.num_backtracks} backtracks, "
+            f"{metrics.num_verifier_calls} verifier calls."
+        )
+
+        result = ModelOutputThunk(value=final_text)
+        result._context = ctx.view_for_generation()
+        result._action = action
+        result._model_options = model_opts
+        result._meta["backtracking_metrics"] = dataclasses.asdict(metrics)
+
+        generate_log = GenerateLog()
+        generate_log.prompt = ctx_as_chat
+        generate_log.backend = f"hf::{self.model_id!s}"
+        generate_log.model_options = model_opts
+        generate_log.date = datetime.datetime.now()
+        generate_log.model_output = final_text
+        generate_log.extra = {
+            "backtracking_metrics": dataclasses.asdict(metrics),
+            "seed": seed,
+        }
+        generate_log.action = action
+        generate_log.result = result
+        result._generate_log = generate_log
+
+        new_ctx = ctx.add(action).add(result)
+        return result, new_ctx, metrics
+
+    # endregion
 
     # region cache management
     def cache_get(self, id: str) -> HFAloraCacheInfo | None:

@@ -2,6 +2,7 @@
 
 # Import from core for ergonomics.
 from ...core import SamplingResult, SamplingStrategy
+from .backtracking import BacktrackingSamplingStrategy
 from .base import (
     BaseSamplingStrategy,
     MultiTurnStrategy,
@@ -11,6 +12,7 @@ from .base import (
 from .sofai import SOFAISamplingStrategy
 
 __all__ = [
+    "BacktrackingSamplingStrategy",
     "BaseSamplingStrategy",
     "MultiTurnStrategy",
     "RejectionSamplingStrategy",
