@@ -1,16 +1,22 @@
 """Interfaces for Backends and Generation."""
 
+from __future__ import annotations
+
 import abc
 import asyncio
 import itertools
 from collections.abc import Sequence
-from typing import overload
+from typing import TYPE_CHECKING, overload
 
 import pydantic
 import typing_extensions
 
 from .base import C, CBlock, Component, Context, ModelOutputThunk
 from .utils import FancyLogger
+
+if TYPE_CHECKING:
+    from ..steering.capabilities import SteeringCapabilities
+    from ..steering.policy import SteeringPolicy
 
 # Necessary to define a type variable that has a default value.
 # This is because VSCode's pyright static type checker instantiates
@@ -40,6 +46,7 @@ class Backend(abc.ABC):
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
+        steering: SteeringPolicy | None = None,
     ) -> tuple[ModelOutputThunk[C], Context]:
         """Generates a model output from a context. May not mutate the context. This must be called from a running event loop as it creates a task to run the generation request.
 
@@ -49,11 +56,28 @@ class Backend(abc.ABC):
             format: A response format to used for structured outputs / constrained decoding.
             model_options: Any model options to upsert into the defaults for this call.
             tool_calls: If `True`, then tool calls are extracts from the `action` `Component`. Assumption: if tool_calls is enabled, then the action `Component` has a TemplateRepresentation
+            steering: An optional SteeringPolicy containing state and output
+                controls for this generation. Backends that support steering
+                should interpret the controls; others should ignore this
+                parameter. Input controls are never passed here — they are
+                applied at the Mellea level before the backend is involved.
 
         Returns:
             a tuple of (ModelOutputThunk, Context) where the Context is the new context after the generation has been completed.
         """
         ...
+
+    @property
+    def steering_capabilities(self) -> SteeringCapabilities:
+        """Declare what steering control types this backend supports.
+
+        Override in subclasses to declare supported control types.
+        Default: empty capabilities (no state/output control support;
+        input controls are always supported at the Mellea level).
+        """
+        from ..steering.capabilities import SteeringCapabilities
+
+        return SteeringCapabilities()
 
     @overload
     async def generate_from_raw(

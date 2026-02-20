@@ -184,6 +184,55 @@ class Instruction(Component[str]):
         res._repair_string = repair_string
         return res
 
+    def with_additional_examples(self, examples: list[str | CBlock]) -> Instruction:
+        """Return a copy with additional ICL examples appended.
+
+        Follows the same deepcopy-and-modify pattern as copy_and_repair.
+        The new examples are appended after any existing examples.
+
+        Args:
+            examples: A list of example strings or CBlocks to append.
+
+        Returns:
+            A new Instruction with the additional examples.
+        """
+        res = deepcopy(self)
+        res._icl_examples = [*res._icl_examples, *[blockify(example) for example in examples]]
+        return res
+
+    def with_additional_grounding(
+        self, entries: dict[str, str | CBlock | Component]
+    ) -> Instruction:
+        """Return a copy with additional grounding context entries.
+
+        Follows the same deepcopy-and-modify pattern as copy_and_repair.
+        Raises KeyError if any provided key already exists in the
+        grounding context, to prevent silent overwrites.
+
+        Args:
+            entries: A dict of (key, value) pairs to add to the grounding
+                context. Values are blockified if they are strings.
+
+        Returns:
+            A new Instruction with the additional grounding entries.
+
+        Raises:
+            KeyError: If any key in entries already exists in the
+                instruction's grounding context.
+        """
+        res = deepcopy(self)
+        for k in entries:
+            if k in res._grounding_context:
+                raise KeyError(
+                    f"Grounding key '{k}' already exists in instruction. "
+                    f"Use a unique key to avoid overwriting existing "
+                    f"grounding context."
+                )
+        res._grounding_context.update(
+            {k: blockify(v) if isinstance(v, str) else v for k, v in entries.items()}
+        )
+        return res
+
     def _parse(self, computed: ModelOutputThunk) -> str:
         """Parse the model output. Returns string value for now."""
         return computed.value if computed.value is not None else ""

@@ -59,6 +59,15 @@ from .tools import (
 if TYPE_CHECKING:
     from transformers.tokenization_utils import PreTrainedTokenizer
 
+    from ..steering.policy import SteeringPolicy
+
+from ..steering.capabilities import SteeringCapabilities
+from ..stdlib.controls.output import (
+    LogitBiasControl,
+    StopSequenceControl,
+    TemperatureOverrideControl,
+)
+
 openai_ollama_batching_error = "json: cannot unmarshal array into Go struct field CompletionRequest.prompt of type string"
 
 format: None = None  # typing this variable in order to shadow the global format function and ensure mypy checks for errors
@@ -190,6 +199,40 @@ class OpenAIBackend(FormatterBackend):
         _ = self._async_client
 
     @property
+    def steering_capabilities(self) -> SteeringCapabilities:
+        """Return the steering capabilities supported by OpenAI."""
+        return SteeringCapabilities(
+            supported_control_types=frozenset(
+                {
+                    LogitBiasControl,
+                    StopSequenceControl,
+                    TemperatureOverrideControl,
+                }
+            )
+        )
+
+    def _apply_steering_to_params(
+        self,
+        model_opts: dict,
+        extra_params: dict,
+        steering: SteeringPolicy,
+    ) -> tuple[dict, dict]:
+        """Translate steering controls to OpenAI API parameters."""
+        for ctrl in steering.output_controls:
+            match ctrl:
+                case TemperatureOverrideControl(temperature=t):
+                    model_opts["temperature"] = t
+                case StopSequenceControl(sequences=seqs):
+                    existing = extra_params.get("stop", [])
+                    extra_params["stop"] = list(existing) + list(seqs)
+                case LogitBiasControl(biases=biases):
+                    bias_dict = {str(tok): val for tok, val in biases}
+                    existing = extra_params.get("logit_bias", {})
+                    existing.update(bias_dict)
+                    extra_params["logit_bias"] = existing
+        return model_opts, extra_params
+
+    @property
     def _async_client(self) -> openai.AsyncOpenAI:
         """OpenAI's client usually handles changing event loops but explicitly handle it here for edge cases."""
         key = id(get_current_event_loop())
@@ -302,6 +345,7 @@ class OpenAIBackend(FormatterBackend):
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
+        steering: SteeringPolicy | None = None,
     ) -> tuple[ModelOutputThunk[C], Context]:
         """See `generate_from_chat_context`."""
         from ..telemetry.backend_instrumentation import start_generate_span
@@ -325,6 +369,7 @@ class OpenAIBackend(FormatterBackend):
             _format=format,
             model_options=model_options,
             tool_calls=tool_calls,
+            steering=steering,
         )
         # Store span in ModelOutputThunk for later use in post_processing
         mot, new_ctx = result
@@ -341,6 +386,7 @@ class OpenAIBackend(FormatterBackend):
         | None = None,  # Type[BaseModelSubclass] is a class object of a subclass of BaseModel
         model_options: dict | None = None,
         tool_calls: bool = False,
+        steering: SteeringPolicy | None = None,
     ) -> tuple[ModelOutputThunk[C], Context]:
         """Generates a new completion from the provided Context using this backend's `Formatter`."""
         await self.do_generate_walk(action)
@@ -351,6 +397,7 @@ class OpenAIBackend(FormatterBackend):
             _format=_format,
             model_options=model_options,
             tool_calls=tool_calls,
+            steering=steering,
         )
         return mot, ctx.add(action).add(mot)
 
@@ -363,6 +410,7 @@ class OpenAIBackend(FormatterBackend):
         | None = None,  # Type[BaseModelSubclass] is a class object of a subclass of BaseModel
         model_options: dict | None = None,
         tool_calls: bool = False,
+        steering: SteeringPolicy | None = None,
     ) -> ModelOutputThunk:
         model_opts = self._simplify_and_merge(
             model_options, is_chat_context=ctx.is_chat_context
@@ -389,6 +437,13 @@ class OpenAIBackend(FormatterBackend):
         conversation.extend([message_to_openai_message(m) for m in messages])
 
         extra_params: dict[str, Any] = {}
+
+        # apply steering controls to model options and extra params
+        if steering is not None:
+            model_opts, extra_params = self._apply_steering_to_params(
+                model_opts, extra_params, steering
+            )
+
         if _format is not None:
             if self._server_type == _ServerType.OPENAI:
                 # The OpenAI platform requires that additionalProperties=False on all response_format schemas.

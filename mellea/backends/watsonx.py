@@ -1,5 +1,7 @@
 """A generic WatsonX.ai compatible backend that wraps around the watson_machine_learning library."""
 
+from __future__ import annotations
+
 import asyncio
 import datetime
 import functools
@@ -8,7 +10,10 @@ import os
 import warnings
 from collections.abc import AsyncGenerator, Callable, Coroutine, Sequence
 from dataclasses import fields
-from typing import Any, overload
+from typing import TYPE_CHECKING, Any, overload
+
+if TYPE_CHECKING:
+    from ..steering.policy import SteeringPolicy
 
 from ibm_watsonx_ai import APIClient, Credentials
 from ibm_watsonx_ai.foundation_models import ModelInference
@@ -250,6 +255,7 @@ class WatsonxAIBackend(FormatterBackend):
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
+        steering: SteeringPolicy | None = None,
     ) -> tuple[ModelOutputThunk[C], Context]:
         """See `generate_from_chat_context`."""
         assert ctx.is_chat_context, NotImplementedError(

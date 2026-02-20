@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Coroutine
-from typing import Any, Literal, overload
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 from PIL import Image as PILImage
 
@@ -31,6 +31,9 @@ from .components import Instruction, Message, MObjectProtocol, ToolMessage, mify
 from .context import SimpleContext
 from .sampling import RejectionSamplingStrategy
 
+if TYPE_CHECKING:
+    from ..steering.optimizer import SteeringOptimizer
+
 
 @overload
 def act(
@@ -44,6 +47,7 @@ def act(
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
     tool_calls: bool = False,
+    optimizer: SteeringOptimizer | None = None,
 ) -> tuple[ModelOutputThunk[S], Context]: ...
 
 
@@ -59,6 +63,7 @@ def act(
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
     tool_calls: bool = False,
+    optimizer: SteeringOptimizer | None = None,
 ) -> SamplingResult[S]: ...
 
 
@@ -73,6 +78,7 @@ def act(
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
     tool_calls: bool = False,
+    optimizer: SteeringOptimizer | None = None,
 ) -> tuple[ModelOutputThunk[S], Context] | SamplingResult[S]:
     """Runs a generic action, and adds both the action and the result to the context.
 
@@ -86,6 +92,9 @@ def act(
         format: if set, the BaseModel to use for constrained decoding.
         model_options: additional model options, which will upsert into the model/backend's defaults.
         tool_calls: if true, tool calling is enabled.
+        optimizer: An optional SteeringOptimizer that compiles requirements into
+            steering policies. When provided, the optimizer's compile() method is
+            called to produce controls before generation.
 
     Returns:
         A (ModelOutputThunk, Context) if `return_sampling_results` is `False`, else returns a `SamplingResult`.
@@ -102,7 +111,8 @@ def act(
             model_options=model_options,
             tool_calls=tool_calls,
             silence_context_type_warning=True,  # We can safely silence this here since it's in a sync function.
-        )  # type: ignore[call-overload]
+            optimizer=optimizer,
+        )  # type: ignore[call-overload,misc]
         # Mypy doesn't like the bool for return_sampling_results.
     )
 
@@ -127,6 +137,7 @@ def instruct(
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
     tool_calls: bool = False,
+    optimizer: SteeringOptimizer | None = None,
 ) -> tuple[ModelOutputThunk[str], Context]: ...
 
 
@@ -148,6 +159,7 @@ def instruct(
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
     tool_calls: bool = False,
+    optimizer: SteeringOptimizer | None = None,
 ) -> SamplingResult[str]: ...
 
 
@@ -168,6 +180,7 @@ def instruct(
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
     tool_calls: bool = False,
+    optimizer: SteeringOptimizer | None = None,
 ) -> tuple[ModelOutputThunk[str], Context] | SamplingResult[str]:
     """Generates from an instruction.
 
@@ -187,6 +200,9 @@ def instruct(
         model_options: Additional model options, which will upsert into the model/backend's defaults.
         tool_calls: If true, tool calling is enabled.
         images: A list of images to be used in the instruction or None if none.
+        optimizer: An optional SteeringOptimizer that compiles requirements into
+            steering policies. When provided, the optimizer's compile() method is
+            called to produce controls before generation.
 
     Returns:
         A (ModelOutputThunk, Context) if `return_sampling_results` is `False`, else returns a `SamplingResult`.
@@ -219,6 +235,7 @@ def instruct(
         format=format,
         model_options=model_options,
         tool_calls=tool_calls,
+        optimizer=optimizer,
     )  # type: ignore[call-overload]
 
 
@@ -427,6 +444,7 @@ async def aact(
     model_options: dict | None = None,
     tool_calls: bool = False,
     silence_context_type_warning: bool = False,
+    optimizer: SteeringOptimizer | None = None,
 ) -> tuple[ModelOutputThunk[S], Context]: ...
 
 
@@ -443,6 +461,7 @@ async def aact(
     model_options: dict | None = None,
     tool_calls: bool = False,
     silence_context_type_warning: bool = False,
+    optimizer: SteeringOptimizer | None = None,
 ) -> SamplingResult[S]: ...
 
 
@@ -458,6 +477,7 @@ async def aact(
     model_options: dict | None = None,
     tool_calls: bool = False,
     silence_context_type_warning: bool = False,
+    optimizer: SteeringOptimizer | None = None,
 ) -> tuple[ModelOutputThunk[S], Context] | SamplingResult:
     """Asynchronous version of .act; runs a generic action, and adds both the action and the result to the context.
 
@@ -472,6 +492,9 @@ async def aact(
         model_options: additional model options, which will upsert into the model/backend's defaults.
         tool_calls: if true, tool calling is enabled.
         silence_context_type_warning: if called directly from an asynchronous function, will log a warning if not using a SimpleContext
+        optimizer: An optional SteeringOptimizer that compiles requirements into
+            steering policies. When provided, the optimizer's compile() method is
+            called to produce controls before generation.
 
     Returns:
         A (ModelOutputThunk, Context) if `return_sampling_results` is `False`, else returns a `SamplingResult`.
@@ -484,6 +507,7 @@ async def aact(
         strategy_type=strategy.__class__.__name__ if strategy else None,
         has_format=format is not None,
         tool_calls=tool_calls,
+        has_optimizer=optimizer is not None,
     ) as span:
         if not silence_context_type_warning and not isinstance(context, SimpleContext):
             FancyLogger().get_logger().warning(
@@ -499,6 +523,44 @@ async def aact(
                 "Must provide a SamplingStrategy when return_sampling_results==True"
             )
 
+        # steering: compile and apply controls
+        backend_policy = None
+        if optimizer is not None and requirements:
+            from ..steering.policy import SteeringPolicy
+
+            capabilities = backend.steering_capabilities
+
+            with trace_application("steering_compile") as steer_span:
+                policy = await optimizer.compile(
+                    requirements, capabilities, context, action
+                )
+                set_span_attribute(
+                    steer_span,
+                    "steering.compiled_input_controls",
+                    len(policy.input_controls),
+                )
+                set_span_attribute(
+                    steer_span,
+                    "steering.compiled_state_controls",
+                    len(policy.state_controls),
+                )
+                set_span_attribute(
+                    steer_span,
+                    "steering.compiled_output_controls",
+                    len(policy.output_controls),
+                )
+
+            # apply input controls (Mellea-level, no backend needed)
+            for control in policy.input_controls:
+                action, context = control.apply(action, context)  # type: ignore[assignment]
+
+            # filter to backend capabilities
+            bp = capabilities.filter_policy(policy.backend_policy)
+            if not bp.is_empty():
+                backend_policy = bp
+
+        set_span_attribute(span, "has_steering_policy", backend_policy is not None)
+
         if strategy is None:
             # Only use the strategy if one is provided. Add a warning if requirements were passed in though.
             if requirements is not None and len(requirements) > 0:
@@ -512,6 +574,7 @@ async def aact(
                 format=format,
                 model_options=model_options,
                 tool_calls=tool_calls,
+                steering=backend_policy,
             )
             await result.avalue()
 
@@ -533,6 +596,8 @@ async def aact(
                 format=format,
                 model_options=model_options,
                 tool_calls=tool_calls,
+                steering=backend_policy,
+                optimizer=optimizer,
             )
 
             assert sampling_result.sample_generations is not None
@@ -601,6 +666,7 @@ async def ainstruct(
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
     tool_calls: bool = False,
+    optimizer: SteeringOptimizer | None = None,
 ) -> tuple[ModelOutputThunk[str], Context]: ...
 
 
@@ -622,6 +688,7 @@ async def ainstruct(
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
     tool_calls: bool = False,
+    optimizer: SteeringOptimizer | None = None,
 ) -> SamplingResult[S]: ...
 
 
@@ -642,6 +709,7 @@ async def ainstruct(
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
     tool_calls: bool = False,
+    optimizer: SteeringOptimizer | None = None,
 ) -> tuple[ModelOutputThunk[str], Context] | SamplingResult:
     """Generates from an instruction.
 
@@ -661,6 +729,9 @@ async def ainstruct(
         model_options: Additional model options, which will upsert into the model/backend's defaults.
         tool_calls: If true, tool calling is enabled.
         images: A list of images to be used in the instruction or None if none.
+        optimizer: An optional SteeringOptimizer that compiles requirements into
+            steering policies. When provided, the optimizer's compile() method is
+            called to produce controls before generation.
 
     Returns:
         A (ModelOutputThunk, Context) if `return_sampling_results` is `False`, else returns a `SamplingResult`.
@@ -692,6 +763,7 @@ async def ainstruct(
         return_sampling_results=return_sampling_results,
         format=format,
         model_options=model_options,
+        optimizer=optimizer,
         tool_calls=tool_calls,
     )  # type: ignore[call-overload]
 

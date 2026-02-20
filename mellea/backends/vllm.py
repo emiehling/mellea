@@ -14,7 +14,10 @@ import json
 import os
 import shutil
 from collections.abc import Callable, Sequence
-from typing import Any, overload
+from typing import TYPE_CHECKING, Any, overload
+
+if TYPE_CHECKING:
+    from ..steering.policy import SteeringPolicy
 
 try:
     import msgspec
@@ -242,6 +245,7 @@ class LocalVLLMBackend(FormatterBackend):
         model_options: dict | None = None,
         generate_logs: list[GenerateLog] | None = None,
         tool_calls: bool = False,
+        steering: SteeringPolicy | None = None,
     ) -> tuple[ModelOutputThunk[C], Context]:
         """Generate using the huggingface model."""
         await self.do_generate_walk(action)

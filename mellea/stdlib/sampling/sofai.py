@@ -8,9 +8,11 @@ The strategy leverages ValidationResult.reason fields to provide targeted
 feedback for repair, enabling more effective iterative improvement.
 """
 
+from __future__ import annotations
+
 import re
 from copy import deepcopy
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import tqdm
 
@@ -31,6 +33,10 @@ from ...core import (
 from ...stdlib import functional as mfuncs
 from ..components import Message
 from ..context import ChatContext
+
+if TYPE_CHECKING:
+    from ...steering.optimizer import SteeringOptimizer
+    from ...steering.policy import SteeringPolicy
 
 
 class SOFAISamplingStrategy(SamplingStrategy):
@@ -564,6 +570,8 @@ class SOFAISamplingStrategy(SamplingStrategy):
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
+        steering: SteeringPolicy | None = None,
+        optimizer: SteeringOptimizer | None = None,
     ) -> SamplingResult[S]:
         """Execute SOFAI two-solver sampling strategy.
 
@@ -593,6 +601,12 @@ class SOFAISamplingStrategy(SamplingStrategy):
             format: Output format for structured outputs.
             model_options: Model options to pass to backends.
             tool_calls: True if tool calls should be used.
+            steering: An optional backend SteeringPolicy (state + output
+                controls only). Forwarded to backend.generate_from_context
+                for candidate generation. Must NOT be forwarded to
+                validation calls.
+            optimizer: An optional SteeringOptimizer for refining the
+                steering policy after validation failures.
 
         Returns:
             SamplingResult with success status and all generation history.
@@ -605,6 +619,14 @@ class SOFAISamplingStrategy(SamplingStrategy):
         )
 
         flog = FancyLogger.get_logger()
+
+        # warn if steering is provided but not yet supported
+        if steering is not None:
+            flog.warning(
+                "SOFAISamplingStrategy does not yet support steering. "
+                "The steering policy will be ignored."
+            )
+
         reqs: list[Requirement] = list(requirements) if requirements else []
 
         # State tracking for all attempts

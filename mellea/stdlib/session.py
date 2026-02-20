@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextvars
 import inspect
 from copy import copy
-from typing import Any, Literal, overload
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 from PIL import Image as PILImage
 
@@ -31,6 +31,9 @@ from ..telemetry import set_span_attribute, trace_application
 from .components import Message
 from .context import SimpleContext
 from .sampling import RejectionSamplingStrategy
+
+if TYPE_CHECKING:
+    from ..steering.optimizer import SteeringOptimizer
 
 # Global context variable for the context session
 _context_session: contextvars.ContextVar[MelleaSession | None] = contextvars.ContextVar(
@@ -102,6 +105,7 @@ def start_session(
     ctx: Context | None = None,
     *,
     model_options: dict | None = None,
+    optimizer: SteeringOptimizer | None = None,
     **backend_kwargs,
 ) -> MelleaSession:
     """Start a new Mellea session. Can be used as a context manager or called directly.
@@ -125,6 +129,9 @@ def start_session(
             Use ChatContext() for chat-style conversations.
         model_options: Additional model configuration options that will be passed
             to the backend (e.g., temperature, max_tokens, etc.).
+        optimizer: An optional SteeringOptimizer that compiles requirements into
+            steering policies. When provided, the optimizer will be used by default
+            for all calls to act/instruct that have requirements.
         **backend_kwargs: Additional keyword arguments passed to the backend constructor.
 
     Returns:
@@ -195,7 +202,7 @@ def start_session(
             + (f", model_options={model_options}" if model_options else "")
         )
 
-        return MelleaSession(backend, ctx)
+        return MelleaSession(backend, ctx, optimizer=optimizer)
 
 
 class MelleaSession:
@@ -213,16 +220,27 @@ class MelleaSession:
     """
 
     ctx: Context
+    optimizer: SteeringOptimizer | None
 
-    def __init__(self, backend: Backend, ctx: Context | None = None):
+    def __init__(
+        self,
+        backend: Backend,
+        ctx: Context | None = None,
+        *,
+        optimizer: SteeringOptimizer | None = None,
+    ):
         """Initializes a new Mellea session with the provided backend and context.
 
         Args:
             backend (Backend): This is always required.
             ctx (Context): The way in which the model's context will be managed. By default, each interaction with the model is a stand-alone interaction, so we use SimpleContext as the default.
+            optimizer: An optional SteeringOptimizer that compiles requirements into
+                steering policies. When provided, the optimizer will be used by default
+                for all calls to act/instruct that have requirements.
         """
         self.backend = backend
         self.ctx: Context = ctx if ctx is not None else SimpleContext()
+        self.optimizer = optimizer
         self._session_logger = FancyLogger.get_logger()
         self._context_token = None
         self._session_span = None
@@ -250,7 +268,9 @@ class MelleaSession:
 
     def __copy__(self):
         """Use self.clone. Copies the current session but keeps references to the backend and context."""
-        new = MelleaSession(backend=self.backend, ctx=self.ctx)
+        new = MelleaSession(
+            backend=self.backend, ctx=self.ctx, optimizer=self.optimizer
+        )
         new._session_logger = self._session_logger
         # Explicitly don't copy over the _context_token.
 
@@ -302,6 +322,7 @@ class MelleaSession:
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
+        optimizer: SteeringOptimizer | None = None,
     ) -> ModelOutputThunk[S]: ...
 
     @overload
@@ -315,6 +336,7 @@ class MelleaSession:
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
+        optimizer: SteeringOptimizer | None = None,
     ) -> SamplingResult[S]: ...
 
     def act(
@@ -327,6 +349,7 @@ class MelleaSession:
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
+        optimizer: SteeringOptimizer | None = None,
     ) -> ModelOutputThunk[S] | SamplingResult:
         """Runs a generic action, and adds both the action and the result to the context.
 
@@ -338,10 +361,14 @@ class MelleaSession:
             format: if set, the BaseModel to use for constrained decoding.
             model_options: additional model options, which will upsert into the model/backend's defaults.
             tool_calls: if true, tool calling is enabled.
+            optimizer: An optional SteeringOptimizer that compiles requirements into
+                steering policies. If None, uses the session's default optimizer.
 
         Returns:
             A ModelOutputThunk if `return_sampling_results` is `False`, else returns a `SamplingResult`.
         """
+        # per-call optimizer overrides session default
+        opt = optimizer if optimizer is not None else self.optimizer
         r = mfuncs.act(
             action,
             context=self.ctx,
@@ -352,6 +379,7 @@ class MelleaSession:
             format=format,
             model_options=model_options,
             tool_calls=tool_calls,
+            optimizer=opt,
         )  # type: ignore
 
         if isinstance(r, SamplingResult):
@@ -379,6 +407,7 @@ class MelleaSession:
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
+        optimizer: SteeringOptimizer | None = None,
     ) -> ModelOutputThunk[str]: ...
 
     @overload
@@ -398,6 +427,7 @@ class MelleaSession:
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
+        optimizer: SteeringOptimizer | None = None,
     ) -> SamplingResult[str]: ...
 
     def instruct(
@@ -416,6 +446,7 @@ class MelleaSession:
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
+        optimizer: SteeringOptimizer | None = None,
     ) -> ModelOutputThunk[str] | SamplingResult:
         """Generates from an instruction.
 
@@ -433,7 +464,11 @@ class MelleaSession:
             model_options: Additional model options, which will upsert into the model/backend's defaults.
             tool_calls: If true, tool calling is enabled.
             images: A list of images to be used in the instruction or None if none.
+            optimizer: An optional SteeringOptimizer that compiles requirements into
+                steering policies. If None, uses the session's default optimizer.
         """
+        # per-call optimizer overrides session default
+        opt = optimizer if optimizer is not None else self.optimizer
         r = mfuncs.instruct(
             description,
             context=self.ctx,
@@ -450,6 +485,7 @@ class MelleaSession:
             format=format,
             model_options=model_options,
             tool_calls=tool_calls,
+            optimizer=opt,
         )
 
         if isinstance(r, SamplingResult):
@@ -586,6 +622,7 @@ class MelleaSession:
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
+        optimizer: SteeringOptimizer | None = None,
     ) -> ModelOutputThunk[S]: ...
 
     @overload
@@ -599,6 +636,7 @@ class MelleaSession:
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
+        optimizer: SteeringOptimizer | None = None,
     ) -> SamplingResult[S]: ...
 
     async def aact(
@@ -611,6 +649,7 @@ class MelleaSession:
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
+        optimizer: SteeringOptimizer | None = None,
     ) -> ModelOutputThunk[S] | SamplingResult:
         """Runs a generic action, and adds both the action and the result to the context.
 
@@ -622,10 +661,14 @@ class MelleaSession:
             format: if set, the BaseModel to use for constrained decoding.
             model_options: additional model options, which will upsert into the model/backend's defaults.
             tool_calls: if true, tool calling is enabled.
+            optimizer: An optional SteeringOptimizer that compiles requirements into
+                steering policies. If None, uses the session's default optimizer.
 
         Returns:
             A ModelOutputThunk if `return_sampling_results` is `False`, else returns a `SamplingResult`.
         """
+        # per-call optimizer overrides session default
+        opt = optimizer if optimizer is not None else self.optimizer
         r = await mfuncs.aact(
             action,
             context=self.ctx,
@@ -636,6 +679,7 @@ class MelleaSession:
             format=format,
             model_options=model_options,
             tool_calls=tool_calls,
+            optimizer=opt,
         )  # type: ignore
 
         if isinstance(r, SamplingResult):
@@ -663,6 +707,7 @@ class MelleaSession:
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
+        optimizer: SteeringOptimizer | None = None,
     ) -> ModelOutputThunk[str]: ...
 
     @overload
@@ -682,6 +727,7 @@ class MelleaSession:
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
+        optimizer: SteeringOptimizer | None = None,
     ) -> SamplingResult[str]: ...
 
     async def ainstruct(
@@ -700,6 +746,7 @@ class MelleaSession:
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
+        optimizer: SteeringOptimizer | None = None,
     ) -> ModelOutputThunk[str] | SamplingResult[str]:
         """Generates from an instruction.
 
@@ -717,7 +764,11 @@ class MelleaSession:
             model_options: Additional model options, which will upsert into the model/backend's defaults.
             tool_calls: If true, tool calling is enabled.
             images: A list of images to be used in the instruction or None if none.
+            optimizer: An optional SteeringOptimizer that compiles requirements into
+                steering policies. If None, uses the session's default optimizer.
         """
+        # per-call optimizer overrides session default
+        opt = optimizer if optimizer is not None else self.optimizer
         r = await mfuncs.ainstruct(
             description,
             context=self.ctx,
@@ -734,6 +785,7 @@ class MelleaSession:
             format=format,
             model_options=model_options,
             tool_calls=tool_calls,
+            optimizer=opt,
         )
 
         if isinstance(r, SamplingResult):

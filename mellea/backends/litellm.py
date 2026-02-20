@@ -1,13 +1,21 @@
 """A generic LiteLLM compatible backend that wraps around the openai python sdk."""
 
+from __future__ import annotations
+
 import asyncio
 import datetime
 import functools
 import json
 from collections.abc import Callable, Coroutine, Sequence
-from typing import Any, overload
+from typing import TYPE_CHECKING, Any, overload
+
+if TYPE_CHECKING:
+    from ..steering.policy import SteeringPolicy
 
 import litellm
+
+from ..steering.capabilities import SteeringCapabilities
+from ..stdlib.controls.output import StopSequenceControl, TemperatureOverrideControl
 import litellm.litellm_core_utils
 import litellm.litellm_core_utils.get_supported_openai_params
 
@@ -118,6 +126,31 @@ class LiteLLMBackend(FormatterBackend):
 
         self._past_event_loops: set[int] = set()
 
+    @property
+    def steering_capabilities(self) -> SteeringCapabilities:
+        """Return the steering capabilities supported by LiteLLM."""
+        return SteeringCapabilities(
+            supported_control_types=frozenset(
+                {
+                    StopSequenceControl,
+                    TemperatureOverrideControl,
+                }
+            )
+        )
+
+    def _apply_steering_to_options(
+        self, model_options: dict, steering: SteeringPolicy
+    ) -> dict:
+        """Translate steering controls to LiteLLM model options."""
+        for ctrl in steering.output_controls:
+            match ctrl:
+                case TemperatureOverrideControl(temperature=t):
+                    model_options["temperature"] = t
+                case StopSequenceControl(sequences=seqs):
+                    existing = model_options.get("stop", [])
+                    model_options["stop"] = list(existing) + list(seqs)
+        return model_options
+
     async def generate_from_context(
         self,
         action: Component[C] | CBlock,
@@ -126,11 +159,18 @@ class LiteLLMBackend(FormatterBackend):
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
+        steering: SteeringPolicy | None = None,
     ) -> tuple[ModelOutputThunk[C], Context]:
         """See `generate_from_chat_context`."""
         assert ctx.is_chat_context, NotImplementedError(
             "The Openai backend only supports chat-like contexts."
         )
+
+        # apply steering controls to model options
+        if steering is not None:
+            model_options = dict(model_options) if model_options else {}
+            model_options = self._apply_steering_to_options(model_options, steering)
+
         span = start_generate_span(
             backend=self, action=action, ctx=ctx, format=format, tool_calls=tool_calls
         )

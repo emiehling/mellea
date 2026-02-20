@@ -1,13 +1,22 @@
 """A model backend wrapping the Ollama Python SDK."""
 
+from __future__ import annotations
+
 import asyncio
 import datetime
 import functools
 from collections.abc import AsyncIterator, Callable, Coroutine, Sequence
-from typing import Any, overload
+from typing import TYPE_CHECKING, Any, overload
 
 import ollama
+
+if TYPE_CHECKING:
+    from ..steering.policy import SteeringPolicy
+
 from tqdm import tqdm
+
+from ..steering.capabilities import SteeringCapabilities
+from ..stdlib.controls.output import StopSequenceControl, TemperatureOverrideControl
 
 from ..backends import ModelIdentifier, model_ids
 from ..core import (
@@ -110,6 +119,31 @@ class OllamaModelBackend(FormatterBackend):
             ModelOption.MAX_NEW_TOKENS: "num_predict",
             ModelOption.SEED: "seed",
         }
+
+    @property
+    def steering_capabilities(self) -> SteeringCapabilities:
+        """Return the steering capabilities supported by Ollama."""
+        return SteeringCapabilities(
+            supported_control_types=frozenset(
+                {
+                    StopSequenceControl,
+                    TemperatureOverrideControl,
+                }
+            )
+        )
+
+    def _apply_steering_to_options(
+        self, model_options: dict, steering: SteeringPolicy
+    ) -> dict:
+        """Translate steering controls to Ollama model options."""
+        for ctrl in steering.output_controls:
+            match ctrl:
+                case TemperatureOverrideControl(temperature=t):
+                    model_options["temperature"] = t
+                case StopSequenceControl(sequences=seqs):
+                    existing = model_options.get("stop", [])
+                    model_options["stop"] = list(existing) + list(seqs)
+        return model_options
 
     def _get_ollama_model_id(self) -> str:
         """Gets the ollama model id from the model_id that was provided in the constructor. Raises AssertionError is the ModelIdentifier does not provide an ollama_name."""
@@ -258,12 +292,18 @@ class OllamaModelBackend(FormatterBackend):
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
+        steering: SteeringPolicy | None = None,
     ) -> tuple[ModelOutputThunk[C], Context]:
         """See `generate_from_chat_context`."""
         from ..telemetry.backend_instrumentation import start_generate_span
 
         # Start span without auto-closing (will be closed in post_processing)
         span = start_generate_span(self, action, ctx, format, tool_calls)
+
+        # apply steering controls to model options
+        if steering is not None:
+            model_options = dict(model_options) if model_options else {}
+            model_options = self._apply_steering_to_options(model_options, steering)
 
         assert ctx.is_chat_context, (
             "The ollama backend only supports chat-like contexts."

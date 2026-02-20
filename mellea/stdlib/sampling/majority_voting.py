@@ -1,7 +1,10 @@
 """Sampling Strategies for Minimum Bayes Risk Decoding (MBRD)."""
 
+from __future__ import annotations
+
 import abc
 import asyncio
+from typing import TYPE_CHECKING
 
 import numpy as np
 from math_verify import ExprExtractionConfig, LatexExtractionConfig, parse, verify
@@ -17,6 +20,10 @@ from ...core import (
     SamplingResult,
 )
 from .base import RejectionSamplingStrategy
+
+if TYPE_CHECKING:
+    from ...steering.optimizer import SteeringOptimizer
+    from ...steering.policy import SteeringPolicy
 
 
 class BaseMBRDSampling(RejectionSamplingStrategy):
@@ -80,6 +87,8 @@ class BaseMBRDSampling(RejectionSamplingStrategy):
         model_options: dict | None = None,
         tool_calls: bool = False,
         show_progress: bool = True,
+        steering: SteeringPolicy | None = None,
+        optimizer: SteeringOptimizer | None = None,
     ) -> SamplingResult[S]:
         """Samples using majority voting.
 
@@ -93,6 +102,12 @@ class BaseMBRDSampling(RejectionSamplingStrategy):
             model_options: model options to pass to the backend during generation / validation.
             tool_calls: True if tool calls should be used during this sampling strategy.
             show_progress: if true, a tqdm progress bar is used. Otherwise, messages will still be sent to flog.
+            steering: An optional backend SteeringPolicy (state + output
+                controls only). Forwarded to backend.generate_from_context
+                for candidate generation. Must NOT be forwarded to
+                validation calls.
+            optimizer: An optional SteeringOptimizer for refining the
+                steering policy after validation failures.
 
         Returns:
             SamplingResult: A result object indicating the success or failure of the sampling process.
@@ -110,6 +125,8 @@ class BaseMBRDSampling(RejectionSamplingStrategy):
                     model_options=model_options,
                     tool_calls=tool_calls,
                     show_progress=show_progress,
+                    steering=steering,
+                    optimizer=optimizer,
                 )
             )
             tasks.append(task)
