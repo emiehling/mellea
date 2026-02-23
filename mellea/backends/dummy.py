@@ -17,7 +17,7 @@ from ..core import (
 )
 
 if TYPE_CHECKING:
-    from ..steering.policy import SteeringPolicy
+    from ..steering.policy import Policy
 
 
 class DummyBackend(Backend):
@@ -40,7 +40,7 @@ class DummyBackend(Backend):
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
-        steering: SteeringPolicy | None = None,
+        policy: Policy | None = None,
     ) -> tuple[ModelOutputThunk[C], Context]:
         """See constructor for an exmplanation of how DummyBackends work."""
         assert format is None, "The DummyBackend does not support constrained decoding."

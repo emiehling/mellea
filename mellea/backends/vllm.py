@@ -17,7 +17,7 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, overload
 
 if TYPE_CHECKING:
-    from ..steering.policy import SteeringPolicy
+    from ..steering.policy import Policy
 
 try:
     import msgspec
@@ -245,7 +245,7 @@ class LocalVLLMBackend(FormatterBackend):
         model_options: dict | None = None,
         generate_logs: list[GenerateLog] | None = None,
         tool_calls: bool = False,
-        steering: SteeringPolicy | None = None,
+        policy: Policy | None = None,
     ) -> tuple[ModelOutputThunk[C], Context]:
         """Generate using the huggingface model."""
         await self.do_generate_walk(action)

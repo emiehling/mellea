@@ -5,16 +5,14 @@ control implementations live in mellea.stdlib.controls. Concrete
 optimizer implementations live in mellea.stdlib.optimizers.
 """
 
-from .capabilities import SteeringCapabilities
-from .controls import InputControl, OutputControl, StateControl
-from .optimizer import SteeringOptimizer
-from .policy import SteeringPolicy
+from .controls import BackendControl, InputControl
+from .optimizer import Optimizer
+from .policy import Policy, apply_input_controls
 
 __all__ = [
+    "BackendControl",
     "InputControl",
-    "OutputControl",
-    "StateControl",
-    "SteeringCapabilities",
-    "SteeringOptimizer",
-    "SteeringPolicy",
+    "Optimizer",
+    "Policy",
+    "apply_input_controls",
 ]

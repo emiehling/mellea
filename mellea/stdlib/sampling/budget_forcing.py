@@ -25,12 +25,18 @@ from .base import RejectionSamplingStrategy
 from .sampling_algos import think_budget_forcing
 
 if TYPE_CHECKING:
-    from ...steering.optimizer import SteeringOptimizer
-    from ...steering.policy import SteeringPolicy
+    from ...steering.optimizer import Optimizer
+    from ...steering.policy import Policy
 
 
 class BudgetForcingSamplingStrategy(RejectionSamplingStrategy):
-    """Budget forcing sampling class."""
+    """Budget forcing sampling class.
+
+    TODO: this strategy needs the same base/steered separation as
+    BaseSamplingStrategy.sample() to support per-iteration input control
+    application and refinement. It also does not currently forward
+    policy to its generation call (think_budget_forcing).
+    """
 
     think_max_tokens: int | None
     answer_max_tokens: int | None
@@ -96,8 +102,8 @@ class BudgetForcingSamplingStrategy(RejectionSamplingStrategy):
         model_options: dict | None = None,
         tool_calls: bool = False,
         show_progress: bool = True,
-        steering: SteeringPolicy | None = None,
-        optimizer: SteeringOptimizer | None = None,
+        policy: Policy | None = None,
+        optimizer: Optimizer | None = None,
     ) -> SamplingResult[S]:
         """This method performs a sampling operation based on the given instruction.
 
@@ -111,12 +117,9 @@ class BudgetForcingSamplingStrategy(RejectionSamplingStrategy):
             model_options: model options to pass to the backend during generation / validation.
             tool_calls: True if tool calls should be used during this sampling strategy.
             show_progress: if true, a tqdm progress bar is used. Otherwise, messages will still be sent to flog.
-            steering: An optional backend SteeringPolicy (state + output
-                controls only). Forwarded to backend.generate_from_context
-                for candidate generation. Must NOT be forwarded to
-                validation calls.
-            optimizer: An optional SteeringOptimizer for refining the
-                steering policy after validation failures.
+            policy: An optional backend Policy (excluding input controls). Forwarded to backend.generate_from_context for candidate generation. 
+                Must NOT be forwarded to validation calls.
+            optimizer: An optional Optimizer for refining the steering policy after validation failures.
 
         Returns:
             SamplingResult: A result object indicating the success or failure of the sampling process.
@@ -235,13 +238,13 @@ class BudgetForcingSamplingStrategy(RejectionSamplingStrategy):
                 count_valid = len([s for s in constraint_scores if bool(s[1])])
                 flog.info(f"FAILED. Valid: {count_valid}/{len(constraint_scores)}")
 
-                # refine steering policy on failure
-                if optimizer is not None and steering is not None:
-                    steering = await optimizer.refine(
-                        steering,
+                # refine policy on failure
+                if optimizer is not None and policy is not None:
+                    policy = await optimizer.refine(
+                        policy,
                         val_scores,
                         reqs,
-                        backend.steering_capabilities,
+                        backend.supported_controls,
                     )
 
             # If we did not pass all constraints, update the instruction and try again.

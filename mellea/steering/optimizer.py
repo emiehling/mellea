@@ -1,4 +1,4 @@
-"""SteeringOptimizer — translates requirements into a SteeringPolicy."""
+"""Optimizer — translates requirements into a Policy."""
 
 from __future__ import annotations
 
@@ -6,20 +6,15 @@ import abc
 
 from ..core.base import CBlock, Component, Context
 from ..core.requirement import Requirement, ValidationResult
-from .capabilities import SteeringCapabilities
-from .policy import SteeringPolicy
+from .policy import Policy
 
 
-class SteeringOptimizer(abc.ABC):
-    """Analyzes requirements holistically and produces a steering policy.
+class Optimizer(abc.ABC):
+    """Analyzes full set of requirements and produces a steering policy.
 
-    The optimizer is the load-bearing abstraction in the steering system.
-    It ensures that controls for multiple requirements are composed
-    coherently rather than naively merged.
-
-    Two operations:
+    The Optimizer consists of two main operations:
     - compile: requirements -> policy (called once before the sampling loop)
-    - refine: policy + failures -> adjusted policy (called on each retry)
+    - refine: policy + (validation) failures -> adjusted policy (called on each retry)
 
     Both are async to support LLM-based or I/O-bound optimizer implementations.
     """
@@ -28,52 +23,45 @@ class SteeringOptimizer(abc.ABC):
     async def compile(
         self,
         requirements: list[Requirement],
-        capabilities: SteeringCapabilities,
+        supported_controls: frozenset[type],
         ctx: Context | None = None,
         action: Component | CBlock | None = None,
-    ) -> SteeringPolicy:
+    ) -> Policy:
         """Analyze requirements and produce a steering policy.
 
         Args:
             requirements: The full set of requirements to optimize for.
-            capabilities: The backend's declared capabilities (to ensure backend can execute).
+            supported_controls: The backend's supported control types.
             ctx: The current context, if available.
-            action: The action component, if available. Lets the optimizer
-                skip inapplicable input controls (e.g., FewShotControl for
-                a non-Instruction action).
+            action: The action component, if available. Lets the optimizer skip inapplicable input controls 
+                (e.g., FewShot for a non-Instruction action).
 
         Returns:
-            A SteeringPolicy containing the compiled controls.
+            A steering Policy containing the compiled controls.
         """
         ...
 
     async def refine(
         self,
-        policy: SteeringPolicy,
+        policy: Policy,
         validation_results: list[ValidationResult],
         requirements: list[Requirement],
-        capabilities: SteeringCapabilities,
-    ) -> SteeringPolicy:
-        """Adjust the backend policy after a validation failure.
+        supported_controls: frozenset[type],
+    ) -> Policy:
+        """Adjust the steering policy after a validation failure.
 
-        Called within the sampling loop when a generation attempt fails.
-        The returned policy replaces the current backend policy for
-        subsequent retries.
+        Called within the sampling loop when a generation attempt fails. The returned steering policy replaces the current policy for subsequent retries. 
+        All control types (input and backend) may be adjusted; input controls are re-applied fresh each iteration.
 
-        Only state and output controls can be adjusted; input controls
-        were applied before the sampling loop and cannot be changed.
-        This is structurally enforced (the strategy passes only the
-        backend_policy to refine).
-
-        The default implementation returns the policy unchanged.
+        The default implementation returns the steering policy unchanged.
 
         Args:
-            policy: The current backend policy (state + output only).
+            policy: The current full steering policy.
             validation_results: Results from the failed validation.
             requirements: The full requirement set.
-            capabilities: The backend's capabilities.
+            supported_controls: The backend's supported control types.
 
         Returns:
-            An adjusted SteeringPolicy for the next retry.
+            An adjusted Policy for the next retry.
         """
         return policy

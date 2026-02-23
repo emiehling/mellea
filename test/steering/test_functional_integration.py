@@ -12,12 +12,7 @@ from mellea.core import Component, Context, Requirement
 from mellea.stdlib.components.instruction import Instruction
 from mellea.stdlib.context import SimpleContext
 from mellea.stdlib.functional import aact, act, ainstruct, instruct
-from mellea.steering import (
-    InputControl,
-    SteeringCapabilities,
-    SteeringOptimizer,
-    SteeringPolicy,
-)
+from mellea.steering import InputControl, Optimizer, Policy
 
 
 @dataclass(frozen=True)
@@ -37,7 +32,7 @@ class MockInputControl(InputControl):
         return action, ctx
 
 
-class MockOptimizer(SteeringOptimizer):
+class MockOptimizer(Optimizer):
     """Mock optimizer for testing."""
 
     def __init__(
@@ -52,22 +47,22 @@ class MockOptimizer(SteeringOptimizer):
     async def compile(
         self,
         requirements: list[Requirement],
-        capabilities: SteeringCapabilities,
+        supported_controls: frozenset[type],
         ctx: Context | None = None,
         action: Component | None = None,
-    ) -> SteeringPolicy:
+    ) -> Policy:
         """Return a policy with configured controls."""
         self.compile_call_count += 1
-        self.compile_args.append((requirements, capabilities, ctx, action))
-        return SteeringPolicy(input_controls=self.input_controls)
+        self.compile_args.append((requirements, supported_controls, ctx, action))
+        return Policy(input_controls=self.input_controls)
 
     async def refine(
         self,
-        policy: SteeringPolicy,
+        policy: Policy,
         validation_results,
         requirements,
-        capabilities,
-    ) -> SteeringPolicy:
+        supported_controls,
+    ) -> Policy:
         """Track refine calls."""
         self.refine_call_count += 1
         return policy

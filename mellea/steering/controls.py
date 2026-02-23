@@ -1,11 +1,10 @@
 """Base classes for steering controls.
 
-All controls are classified as one of three types:
+Controls are classified as one of two types:
 - InputControl: transforms Components/Context before formatting (Mellea-level)
-- StateControl: describes model-internal interventions (backend-level)
-- OutputControl: describes decoding-time interventions (backend-level)
+- BackendControl: pure data descriptor for backend-executed interventions, e.g., activation steering, decoding-time intervenctions, etc.
 
-Concrete control implementations live in mellea/stdlib/controls/.
+Control implementations live in mellea/stdlib/controls/.
 """
 
 from __future__ import annotations
@@ -50,24 +49,13 @@ class InputControl(abc.ABC):
 
 
 @dataclass(frozen=True)
-class StateControl(abc.ABC):
-    """Base class for state controls.
+class BackendControl(abc.ABC):
+    """Base class for backend-executed steering controls.
 
-    State controls are pure data descriptors (no behavior). The backend
-    reads the descriptor fields and applies the intervention using its
-    own internals.
-
-    Concrete subclasses MUST be decorated with @dataclass(frozen=True).
-    """
-
-
-@dataclass(frozen=True)
-class OutputControl(abc.ABC):
-    """Base class for output controls.
-
-    Output controls are pure data descriptors that modify the decoding
-    process. The backend reads the descriptor fields and translates them
-    to backend-specific parameters.
+    Backend controls are pure data descriptors — they carry no behavior.
+    The backend reads the fields and applies the intervention using its
+    own internals, whether that means modifying decoding parameters,
+    applying activation vectors, or adjusting attention masks.
 
     Concrete subclasses MUST be decorated with @dataclass(frozen=True).
     """

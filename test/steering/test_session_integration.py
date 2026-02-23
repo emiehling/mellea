@@ -8,10 +8,10 @@ from mellea.backends.dummy import DummyBackend
 from mellea.core import Component, Context, Requirement
 from mellea.stdlib.context import SimpleContext
 from mellea.stdlib.session import MelleaSession, start_session
-from mellea.steering import SteeringCapabilities, SteeringOptimizer, SteeringPolicy
+from mellea.steering import Optimizer, Policy
 
 
-class MockOptimizer(SteeringOptimizer):
+class MockOptimizer(Optimizer):
     """Mock optimizer for testing."""
 
     def __init__(self):
@@ -21,13 +21,13 @@ class MockOptimizer(SteeringOptimizer):
     async def compile(
         self,
         requirements: list[Requirement],
-        capabilities: SteeringCapabilities,
+        supported_controls: frozenset[type],
         ctx: Context | None = None,
         action: Component | None = None,
-    ) -> SteeringPolicy:
+    ) -> Policy:
         """Return an empty policy."""
         self.compile_call_count += 1
-        return SteeringPolicy()
+        return Policy()
 
 
 class TestSessionOptimizer:

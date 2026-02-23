@@ -2,22 +2,18 @@
 
 from dataclasses import dataclass
 
-from mellea.steering import (
-    InputControl,
-    OutputControl,
-    StateControl,
-    SteeringOptimizer,
-    SteeringPolicy,
-)
+from mellea.steering import BackendControl, InputControl, Optimizer, Policy
 
 
 @dataclass(frozen=True)
-class MockStateControl(StateControl):
+class MockBackendControl(BackendControl):
     label: str
 
 
 @dataclass(frozen=True)
-class MockOutputControl(OutputControl):
+class MockBackendControlAlt(BackendControl):
+    """Second concrete type for capability filtering tests."""
+
     value: float
 
 
@@ -29,11 +25,11 @@ class MockInputControl(InputControl):
         return action, ctx  # no-op for testing
 
 
-class MockOptimizer(SteeringOptimizer):
+class MockOptimizer(Optimizer):
     """Minimal optimizer that returns a fixed policy."""
 
-    def __init__(self, policy: SteeringPolicy | None = None):
-        self._policy = policy or SteeringPolicy()
+    def __init__(self, policy: Policy | None = None):
+        self._policy = policy or Policy()
 
-    async def compile(self, requirements, capabilities, ctx=None, action=None):
+    async def compile(self, requirements, supported_controls, ctx=None, action=None):
         return self._policy

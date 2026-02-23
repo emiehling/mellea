@@ -15,7 +15,7 @@ from collections.abc import Callable, Coroutine, Sequence
 from typing import TYPE_CHECKING, Any, overload
 
 if TYPE_CHECKING:
-    from ..steering.policy import SteeringPolicy
+    from ..steering.policy import Policy
 
 import granite_common
 import llguidance
@@ -324,7 +324,7 @@ class LocalHFBackend(FormatterBackend, AdapterMixin):
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
-        steering: SteeringPolicy | None = None,
+        policy: Policy | None = None,
     ) -> tuple[ModelOutputThunk[C], Context]:
         """Generate using the huggingface model."""
         span = start_generate_span(

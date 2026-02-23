@@ -10,12 +10,9 @@ from collections.abc import Callable, Coroutine, Sequence
 from typing import TYPE_CHECKING, Any, overload
 
 if TYPE_CHECKING:
-    from ..steering.policy import SteeringPolicy
+    from ..steering.policy import Policy
 
 import litellm
-
-from ..steering.capabilities import SteeringCapabilities
-from ..stdlib.controls.output import StopSequenceControl, TemperatureOverrideControl
 import litellm.litellm_core_utils
 import litellm.litellm_core_utils.get_supported_openai_params
 
@@ -42,6 +39,8 @@ from ..helpers import (
     send_to_queue,
 )
 from ..stdlib.components import Message
+from ..stdlib.controls.stop_sequence import StopSequence
+from ..stdlib.controls.temperature import Temperature
 from ..stdlib.requirements import ALoraRequirement
 from ..telemetry.backend_instrumentation import (
     instrument_generate_from_raw,
@@ -127,26 +126,19 @@ class LiteLLMBackend(FormatterBackend):
         self._past_event_loops: set[int] = set()
 
     @property
-    def steering_capabilities(self) -> SteeringCapabilities:
-        """Return the steering capabilities supported by LiteLLM."""
-        return SteeringCapabilities(
-            supported_control_types=frozenset(
-                {
-                    StopSequenceControl,
-                    TemperatureOverrideControl,
-                }
-            )
-        )
+    def supported_controls(self) -> frozenset[type]:
+        """Return the steering control types supported by LiteLLM."""
+        return frozenset({StopSequence, Temperature})
 
     def _apply_steering_to_options(
-        self, model_options: dict, steering: SteeringPolicy
+        self, model_options: dict, policy: Policy
     ) -> dict:
         """Translate steering controls to LiteLLM model options."""
-        for ctrl in steering.output_controls:
+        for ctrl in policy.backend_controls:
             match ctrl:
-                case TemperatureOverrideControl(temperature=t):
+                case Temperature(temperature=t):
                     model_options["temperature"] = t
-                case StopSequenceControl(sequences=seqs):
+                case StopSequence(sequences=seqs):
                     existing = model_options.get("stop", [])
                     model_options["stop"] = list(existing) + list(seqs)
         return model_options
@@ -159,7 +151,7 @@ class LiteLLMBackend(FormatterBackend):
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
-        steering: SteeringPolicy | None = None,
+        policy: Policy | None = None,
     ) -> tuple[ModelOutputThunk[C], Context]:
         """See `generate_from_chat_context`."""
         assert ctx.is_chat_context, NotImplementedError(
@@ -167,9 +159,9 @@ class LiteLLMBackend(FormatterBackend):
         )
 
         # apply steering controls to model options
-        if steering is not None:
+        if policy is not None:
             model_options = dict(model_options) if model_options else {}
-            model_options = self._apply_steering_to_options(model_options, steering)
+            model_options = self._apply_steering_to_options(model_options, policy)
 
         span = start_generate_span(
             backend=self, action=action, ctx=ctx, format=format, tool_calls=tool_calls

@@ -1,4 +1,4 @@
-"""Verify SamplingStrategy ABC accepts steering/optimizer parameters."""
+"""Verify SamplingStrategy ABC accepts policy/optimizer parameters."""
 
 import inspect
 
@@ -9,21 +9,21 @@ from mellea.stdlib.sampling import RejectionSamplingStrategy
 
 
 class TestSamplingStrategySig:
-    def test_abc_sample_has_steering_param(self):
-        """SamplingStrategy.sample ABC has steering parameter."""
+    def test_abc_sample_has_policy_param(self):
+        """SamplingStrategy.sample ABC has policy parameter."""
         sig = inspect.signature(SamplingStrategy.sample)
         params = list(sig.parameters.keys())
-        assert "steering" in params
+        assert "policy" in params
         assert "optimizer" in params
 
-    def test_concrete_sample_has_steering_param(self):
-        """RejectionSamplingStrategy.sample has steering parameter."""
+    def test_concrete_sample_has_policy_param(self):
+        """RejectionSamplingStrategy.sample has policy parameter."""
         sig = inspect.signature(RejectionSamplingStrategy.sample)
         params = list(sig.parameters.keys())
-        assert "steering" in params
+        assert "policy" in params
         assert "optimizer" in params
         # verify they have defaults
-        assert sig.parameters["steering"].default is None
+        assert sig.parameters["policy"].default is None
         assert sig.parameters["optimizer"].default is None
 
     def test_sample_signature_compatible(self):

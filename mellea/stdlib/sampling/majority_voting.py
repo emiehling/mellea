@@ -22,8 +22,8 @@ from ...core import (
 from .base import RejectionSamplingStrategy
 
 if TYPE_CHECKING:
-    from ...steering.optimizer import SteeringOptimizer
-    from ...steering.policy import SteeringPolicy
+    from ...steering.optimizer import Optimizer
+    from ...steering.policy import Policy
 
 
 class BaseMBRDSampling(RejectionSamplingStrategy):
@@ -87,8 +87,8 @@ class BaseMBRDSampling(RejectionSamplingStrategy):
         model_options: dict | None = None,
         tool_calls: bool = False,
         show_progress: bool = True,
-        steering: SteeringPolicy | None = None,
-        optimizer: SteeringOptimizer | None = None,
+        policy: Policy | None = None,
+        optimizer: Optimizer | None = None,
     ) -> SamplingResult[S]:
         """Samples using majority voting.
 
@@ -102,12 +102,9 @@ class BaseMBRDSampling(RejectionSamplingStrategy):
             model_options: model options to pass to the backend during generation / validation.
             tool_calls: True if tool calls should be used during this sampling strategy.
             show_progress: if true, a tqdm progress bar is used. Otherwise, messages will still be sent to flog.
-            steering: An optional backend SteeringPolicy (state + output
-                controls only). Forwarded to backend.generate_from_context
-                for candidate generation. Must NOT be forwarded to
-                validation calls.
-            optimizer: An optional SteeringOptimizer for refining the
-                steering policy after validation failures.
+            policy: An optional backend Policy (excluding input controls). Forwarded to backend.generate_from_context for candidate generation. 
+                Must NOT be forwarded to validation calls.
+            optimizer: An optional Optimizer for refining the steering policy after validation failures.
 
         Returns:
             SamplingResult: A result object indicating the success or failure of the sampling process.
@@ -125,7 +122,7 @@ class BaseMBRDSampling(RejectionSamplingStrategy):
                     model_options=model_options,
                     tool_calls=tool_calls,
                     show_progress=show_progress,
-                    steering=steering,
+                    policy=policy,
                     optimizer=optimizer,
                 )
             )

@@ -205,20 +205,16 @@ class Instruction(Component[str]):
     ) -> Instruction:
         """Return a copy with additional grounding context entries.
 
-        Follows the same deepcopy-and-modify pattern as copy_and_repair.
-        Raises KeyError if any provided key already exists in the
-        grounding context, to prevent silent overwrites.
+        Follows the same deepcopy-and-modify pattern as copy_and_repair. 
 
         Args:
-            entries: A dict of (key, value) pairs to add to the grounding
-                context. Values are blockified if they are strings.
+            entries: A dict of (key, value) pairs to add to the grounding context. Values are blockified if they are strings.
 
         Returns:
             A new Instruction with the additional grounding entries.
 
         Raises:
-            KeyError: If any key in entries already exists in the
-                instruction's grounding context.
+            KeyError: If any key in entries already exists in the instruction's grounding context.
         """
         res = deepcopy(self)
         for k in entries:

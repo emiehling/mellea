@@ -26,8 +26,8 @@ from ..components import Instruction, Message
 from ..context import ChatContext
 
 if TYPE_CHECKING:
-    from ...steering.optimizer import SteeringOptimizer
-    from ...steering.policy import SteeringPolicy
+    from ...steering.optimizer import Optimizer
+    from ...steering.policy import Policy
 
 
 class BaseSamplingStrategy(SamplingStrategy):
@@ -110,8 +110,8 @@ class BaseSamplingStrategy(SamplingStrategy):
         model_options: dict | None = None,
         tool_calls: bool = False,
         show_progress: bool = True,
-        steering: SteeringPolicy | None = None,
-        optimizer: SteeringOptimizer | None = None,
+        policy: Policy | None = None,
+        optimizer: Optimizer | None = None,
     ) -> SamplingResult[S]:
         """This method performs a sampling operation based on the given instruction.
 
@@ -125,12 +125,11 @@ class BaseSamplingStrategy(SamplingStrategy):
             model_options: model options to pass to the backend during generation / validation.
             tool_calls: True if tool calls should be used during this sampling strategy.
             show_progress: if true, a tqdm progress bar is used. Otherwise, messages will still be sent to flog.
-            steering: An optional backend SteeringPolicy (state + output
-                controls only). Forwarded to backend.generate_from_context
-                for candidate generation. Must NOT be forwarded to
-                validation calls.
-            optimizer: An optional SteeringOptimizer for refining the
-                steering policy after validation failures.
+            policy: An optional steering Policy. Input controls are applied (fresh) each iteration; backend controls are extracted 
+                and filtered per-iteration before forwarding to backend.generate_from_context. 
+                Must NOT be forwarded to validation calls.
+            optimizer: An optional Optimizer for refining the steering policy after validation failures. 
+                Receives and returns the full policy (both input and backend controls).
 
         Returns:
             SamplingResult: A result object indicating the success or failure of the sampling process.
@@ -138,6 +137,8 @@ class BaseSamplingStrategy(SamplingStrategy):
         Raises:
             AssertionError: Asserts that all required components (repair, select_from_failure, validate, and generate) are provided before proceeding with the sampling.
         """
+        from ...steering.policy import apply_input_controls
+
         validation_ctx = validation_ctx if validation_ctx is not None else context
 
         flog = FancyLogger.get_logger()
@@ -145,6 +146,7 @@ class BaseSamplingStrategy(SamplingStrategy):
         sampled_results: list[ModelOutputThunk] = []
         sampled_scores: list[list[tuple[Requirement, ValidationResult]]] = []
         sampled_actions: list[Component] = []
+        base_actions: list[Component] = []
         sample_contexts: list[Context] = []
 
         # The `logging_redirect_tqdm` approach did not work, so instead we will use the show_progress
@@ -167,21 +169,36 @@ class BaseSamplingStrategy(SamplingStrategy):
             else range(self.loop_budget)  # type: ignore
         )
 
-        next_action = deepcopy(action)
+        next_base_action = deepcopy(action)
         next_context = context
         for _ in loop_budget_range_iterator:  # type: ignore
             loop_count += 1
             if not show_progress:
                 flog.info(f"Running loop {loop_count} of {self.loop_budget}")
 
+            # apply input controls fresh each iteration
+            if policy is not None and policy.input_controls:
+                steered_action, steered_ctx = apply_input_controls(
+                    policy, next_base_action, next_context
+                )
+            else:
+                steered_action, steered_ctx = next_base_action, next_context
+
+            # extract and filter backend controls per-iteration
+            backend_policy = None
+            if policy is not None:
+                bp = policy.backend_policy.filter(backend.supported_controls)
+                if not bp.is_empty():
+                    backend_policy = bp
+
             # run a generation pass
             result, result_ctx = await backend.generate_from_context(
-                next_action,
-                ctx=next_context,
+                steered_action,
+                ctx=steered_ctx,
                 format=format,
                 model_options=model_options,
                 tool_calls=tool_calls,
-                steering=steering,  # forward state/output controls to generation
+                policy=backend_policy,
             )
             await result.avalue()
 
@@ -207,10 +224,11 @@ class BaseSamplingStrategy(SamplingStrategy):
             # match up reqs with scores
             constraint_scores = list(zip(reqs, val_scores))
 
-            # collect all data
+            # collect all data (steered actions record what the model saw)
             sampled_results.append(result)
             sampled_scores.append(constraint_scores)
-            sampled_actions.append(next_action)
+            sampled_actions.append(steered_action)
+            base_actions.append(next_base_action)
             sample_contexts.append(result_ctx)
 
             # if all vals are true -- break and return success
@@ -246,20 +264,21 @@ class BaseSamplingStrategy(SamplingStrategy):
                     f"FAILED. Valid: {len(constraint_scores) - count_failed}/{len(constraint_scores)}. Failed: {stringify_failed}"
                 )
 
-                # refine steering policy on failure
-                if optimizer is not None and steering is not None:
-                    steering = await optimizer.refine(
-                        steering,
+                # refine policy on failure
+                if optimizer is not None and policy is not None:
+                    policy = await optimizer.refine(
+                        policy,
                         val_scores,
                         reqs,
-                        backend.steering_capabilities,
+                        backend.supported_controls,
                     )
 
-            # If we did not pass all constraints, update the instruction and try again.
-            next_action, next_context = self.repair(
+            # repair operates on base actions (pre-input-control) so that
+            # re-applying controls on the next iteration never conflicts
+            next_base_action, next_context = self.repair(
                 next_context,
                 result_ctx,
-                sampled_actions,
+                base_actions,
                 sampled_results,
                 sampled_scores,
             )

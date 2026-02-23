@@ -8,41 +8,29 @@ from mellea.core import CBlock
 from mellea.stdlib.components.instruction import Instruction
 from mellea.stdlib.context import SimpleContext
 from mellea.stdlib.controls import (
-    ActivationSteeringControl,
-    AttentionMaskControl,
-    FewShotControl,
-    GroundingControl,
-    LogitBiasControl,
-    StopSequenceControl,
-    TemperatureOverrideControl,
+    FewShot,
+    Grounding,
+    StopSequence,
+    Temperature,
+    control_registry,
 )
-from mellea.steering import InputControl, OutputControl, StateControl
+from mellea.steering import BackendControl, InputControl
 
 # ---- Classification Tests ----
 
 
 class TestControlClassification:
     def test_fewshot_is_input_control(self):
-        assert isinstance(FewShotControl(examples=()), InputControl)
+        assert isinstance(FewShot(examples=()), InputControl)
 
     def test_grounding_is_input_control(self):
-        assert isinstance(GroundingControl(entries=()), InputControl)
+        assert isinstance(Grounding(entries=()), InputControl)
 
-    def test_activation_steering_is_state_control(self):
-        ctrl = ActivationSteeringControl(vector_id="v1", layers=(0, 1))
-        assert isinstance(ctrl, StateControl)
+    def test_stop_sequence_is_backend_control(self):
+        assert isinstance(StopSequence(sequences=()), BackendControl)
 
-    def test_attention_mask_is_state_control(self):
-        assert isinstance(AttentionMaskControl(mask_type="block"), StateControl)
-
-    def test_logit_bias_is_output_control(self):
-        assert isinstance(LogitBiasControl(biases=()), OutputControl)
-
-    def test_stop_sequence_is_output_control(self):
-        assert isinstance(StopSequenceControl(sequences=()), OutputControl)
-
-    def test_temperature_is_output_control(self):
-        assert isinstance(TemperatureOverrideControl(temperature=0.5), OutputControl)
+    def test_temperature_is_backend_control(self):
+        assert isinstance(Temperature(temperature=0.5), BackendControl)
 
 
 # ---- Frozen / Hashable Tests ----
@@ -50,37 +38,29 @@ class TestControlClassification:
 
 class TestControlImmutability:
     def test_fewshot_is_frozen(self):
-        ctrl = FewShotControl(examples=("a", "b"))
+        ctrl = FewShot(examples=("a", "b"))
         with pytest.raises((FrozenInstanceError, AttributeError)):
             ctrl.examples = ("c",)
 
-    def test_activation_steering_is_frozen(self):
-        ctrl = ActivationSteeringControl(vector_id="v", layers=(0,))
-        with pytest.raises((FrozenInstanceError, AttributeError)):
-            ctrl.vector_id = "other"
-
     def test_temperature_is_frozen(self):
-        ctrl = TemperatureOverrideControl(temperature=0.7)
+        ctrl = Temperature(temperature=0.7)
         with pytest.raises((FrozenInstanceError, AttributeError)):
             ctrl.temperature = 0.9
 
     def test_all_controls_hashable(self):
         """All controls can be used as dict keys / in sets."""
         controls = [
-            FewShotControl(examples=("a",)),
-            GroundingControl(entries=(("k", "v"),)),
-            ActivationSteeringControl(vector_id="v", layers=(0,)),
-            AttentionMaskControl(mask_type="block"),
-            LogitBiasControl(biases=((1, 0.5),)),
-            StopSequenceControl(sequences=("stop",)),
-            TemperatureOverrideControl(temperature=0.5),
+            FewShot(examples=("a",)),
+            Grounding(entries=(("k", "v"),)),
+            StopSequence(sequences=("stop",)),
+            Temperature(temperature=0.5),
         ]
         s = set(controls)
         assert len(s) == len(controls)
 
     def test_equal_controls_have_equal_hashes(self):
-        a = TemperatureOverrideControl(temperature=0.5)
-        b = TemperatureOverrideControl(temperature=0.5)
+        a = Temperature(temperature=0.5)
+        b = Temperature(temperature=0.5)
         assert a == b
         assert hash(a) == hash(b)
 
@@ -88,9 +68,9 @@ class TestControlImmutability:
 # ---- Input Control Apply Tests ----
 
 
-class TestFewShotControlApply:
+class TestFewShotApply:
     def test_appends_examples_to_instruction(self):
-        ctrl = FewShotControl(examples=("example1", "example2"))
+        ctrl = FewShot(examples=("example1", "example2"))
         inst = Instruction(description="Test", icl_examples=["existing"])
         ctx = SimpleContext()
 
@@ -101,7 +81,7 @@ class TestFewShotControlApply:
         assert new_ctx is ctx  # context unchanged
 
     def test_noop_for_non_instruction(self):
-        ctrl = FewShotControl(examples=("example1",))
+        ctrl = FewShot(examples=("example1",))
         block = CBlock("not an instruction")
         ctx = SimpleContext()
 
@@ -111,7 +91,7 @@ class TestFewShotControlApply:
         assert new_ctx is ctx
 
     def test_empty_examples_noop(self):
-        ctrl = FewShotControl(examples=())
+        ctrl = FewShot(examples=())
         inst = Instruction(description="Test")
         ctx = SimpleContext()
 
@@ -119,9 +99,9 @@ class TestFewShotControlApply:
         assert len(new_action._icl_examples) == 0
 
 
-class TestGroundingControlApply:
+class TestGroundingApply:
     def test_adds_grounding_to_instruction(self):
-        ctrl = GroundingControl(entries=(("doc1", "content1"),))
+        ctrl = Grounding(entries=(("doc1", "content1"),))
         inst = Instruction(description="Test")
         ctx = SimpleContext()
 
@@ -132,7 +112,7 @@ class TestGroundingControlApply:
         assert new_ctx is ctx
 
     def test_noop_for_non_instruction(self):
-        ctrl = GroundingControl(entries=(("doc", "content"),))
+        ctrl = Grounding(entries=(("doc", "content"),))
         block = CBlock("not an instruction")
         ctx = SimpleContext()
 
@@ -140,7 +120,7 @@ class TestGroundingControlApply:
         assert new_action is block
 
     def test_raises_on_key_conflict(self):
-        ctrl = GroundingControl(entries=(("existing_key", "new_val"),))
+        ctrl = Grounding(entries=(("existing_key", "new_val"),))
         inst = Instruction(
             description="Test",
             grounding_context={"existing_key": "old_val"},
@@ -151,18 +131,50 @@ class TestGroundingControlApply:
             ctrl.apply(inst, ctx)
 
 
-# ---- Output Control Validation Tests ----
+# ---- Backend Control Validation Tests ----
 
 
-class TestTemperatureOverrideValidation:
+class TestTemperatureValidation:
     def test_negative_temperature_raises(self):
         with pytest.raises(ValueError, match="Temperature must be >= 0"):
-            TemperatureOverrideControl(temperature=-0.1)
+            Temperature(temperature=-0.1)
 
     def test_zero_temperature_ok(self):
-        ctrl = TemperatureOverrideControl(temperature=0.0)
+        ctrl = Temperature(temperature=0.0)
         assert ctrl.temperature == 0.0
 
     def test_positive_temperature_ok(self):
-        ctrl = TemperatureOverrideControl(temperature=1.5)
+        ctrl = Temperature(temperature=1.5)
         assert ctrl.temperature == 1.5
+
+
+# ---- Registry Tests ----
+
+
+class TestControlRegistry:
+    def test_registry_discovers_all_controls(self):
+        """control_registry() discovers all control modules."""
+        registry = control_registry()
+
+        assert "few_shot" in registry
+        assert "grounding" in registry
+        assert "temperature" in registry
+        assert "stop_sequence" in registry
+
+    def test_registry_has_expected_keys(self):
+        """Each entry has kind, domain, summary, composable."""
+        registry = control_registry()
+        for name, info in registry.items():
+            assert "kind" in info, f"{name} missing 'kind'"
+            assert "domain" in info, f"{name} missing 'domain'"
+            assert "summary" in info, f"{name} missing 'summary'"
+            assert "composable" in info, f"{name} missing 'composable'"
+
+    def test_registry_kind_values(self):
+        """kind is 'input' or 'backend'."""
+        registry = control_registry()
+        assert registry["few_shot"]["kind"] == "input"
+        assert registry["grounding"]["kind"] == "input"
+        assert registry["temperature"]["kind"] == "backend"
+        assert registry["stop_sequence"]["kind"] == "backend"
+

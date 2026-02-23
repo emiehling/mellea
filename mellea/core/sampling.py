@@ -10,8 +10,8 @@ from .base import CBlock, Component, Context, ModelOutputThunk, S
 from .requirement import Requirement, ValidationResult
 
 if TYPE_CHECKING:
-    from ..steering.optimizer import SteeringOptimizer
-    from ..steering.policy import SteeringPolicy
+    from ..steering.optimizer import Optimizer
+    from ..steering.policy import Policy
 
 
 class SamplingResult(CBlock, Generic[S]):
@@ -102,8 +102,8 @@ class SamplingStrategy(abc.ABC):
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
-        steering: SteeringPolicy | None = None,
-        optimizer: SteeringOptimizer | None = None,
+        policy: Policy | None = None,
+        optimizer: Optimizer | None = None,
     ) -> SamplingResult[S]:
         """This method is the abstract method for sampling a given component.
 
@@ -118,12 +118,9 @@ class SamplingStrategy(abc.ABC):
             format: output format for structured outputs.
             model_options: model options to pass to the backend during generation / validation.
             tool_calls: True if tool calls should be used during this sampling strategy.
-            steering: An optional backend SteeringPolicy (state + output
-                controls only). Forwarded to backend.generate_from_context
-                for candidate generation. Must NOT be forwarded to
-                validation calls.
-            optimizer: An optional SteeringOptimizer for refining the
-                steering policy after validation failures.
+            policy: An optional steering Policy. The strategy is responsible for applying input controls per-iteration and extracting/filtering backend controls before 
+                forwarding to backend.generate_from_context. Must NOT be forwarded to validation calls.
+            optimizer: An optional Optimizer for refining the steering policy after validation failures. Receives and returns the full steering policy (both input and backend controls).
 
         Returns:
             SamplingResult: A result object indicating the success or failure of the sampling process.

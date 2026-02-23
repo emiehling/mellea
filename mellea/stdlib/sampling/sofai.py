@@ -35,8 +35,8 @@ from ..components import Message
 from ..context import ChatContext
 
 if TYPE_CHECKING:
-    from ...steering.optimizer import SteeringOptimizer
-    from ...steering.policy import SteeringPolicy
+    from ...steering.optimizer import Optimizer
+    from ...steering.policy import Policy
 
 
 class SOFAISamplingStrategy(SamplingStrategy):
@@ -570,8 +570,8 @@ class SOFAISamplingStrategy(SamplingStrategy):
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
-        steering: SteeringPolicy | None = None,
-        optimizer: SteeringOptimizer | None = None,
+        policy: Policy | None = None,
+        optimizer: Optimizer | None = None,
     ) -> SamplingResult[S]:
         """Execute SOFAI two-solver sampling strategy.
 
@@ -601,12 +601,9 @@ class SOFAISamplingStrategy(SamplingStrategy):
             format: Output format for structured outputs.
             model_options: Model options to pass to backends.
             tool_calls: True if tool calls should be used.
-            steering: An optional backend SteeringPolicy (state + output
-                controls only). Forwarded to backend.generate_from_context
-                for candidate generation. Must NOT be forwarded to
-                validation calls.
-            optimizer: An optional SteeringOptimizer for refining the
-                steering policy after validation failures.
+            policy: An optional backend Policy (backend controls only). Forwarded to backend.generate_from_context for candidate generation. 
+                Must NOT be forwarded to validation calls.
+            optimizer: An optional Optimizer for refining the steering policy after validation failures.
 
         Returns:
             SamplingResult with success status and all generation history.
@@ -620,11 +617,11 @@ class SOFAISamplingStrategy(SamplingStrategy):
 
         flog = FancyLogger.get_logger()
 
-        # warn if steering is provided but not yet supported
-        if steering is not None:
+        # warn if policy is provided but not yet supported
+        if policy is not None:
             flog.warning(
-                "SOFAISamplingStrategy does not yet support steering. "
-                "The steering policy will be ignored."
+                "SOFAISamplingStrategy does not yet support policy. "
+                "The policy will be ignored."
             )
 
         reqs: list[Requirement] = list(requirements) if requirements else []

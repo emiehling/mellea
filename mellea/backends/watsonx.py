@@ -13,7 +13,7 @@ from dataclasses import fields
 from typing import TYPE_CHECKING, Any, overload
 
 if TYPE_CHECKING:
-    from ..steering.policy import SteeringPolicy
+    from ..steering.policy import Policy
 
 from ibm_watsonx_ai import APIClient, Credentials
 from ibm_watsonx_ai.foundation_models import ModelInference
@@ -255,7 +255,7 @@ class WatsonxAIBackend(FormatterBackend):
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
-        steering: SteeringPolicy | None = None,
+        policy: Policy | None = None,
     ) -> tuple[ModelOutputThunk[C], Context]:
         """See `generate_from_chat_context`."""
         assert ctx.is_chat_context, NotImplementedError(

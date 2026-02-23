@@ -1,4 +1,4 @@
-"""Verify Backend ABC accepts steering parameter."""
+"""Verify Backend ABC accepts policy parameter."""
 
 import pytest
 
@@ -7,27 +7,26 @@ from mellea.core import CBlock
 from mellea.stdlib.context import SimpleContext
 
 
-class TestBackendSteeringSig:
+class TestBackendPolicySig:
     @pytest.mark.asyncio
-    async def test_generate_from_context_accepts_steering_none(self):
-        """Existing call pattern (no steering) still works."""
+    async def test_generate_from_context_accepts_policy_none(self):
+        """Existing call pattern (no policy) still works."""
         backend = DummyBackend(responses=["hello"])
         ctx = SimpleContext()
         mot, _new_ctx = await backend.generate_from_context(CBlock("test"), ctx)
         assert mot.value == "hello"
 
     @pytest.mark.asyncio
-    async def test_generate_from_context_accepts_steering_kwarg(self):
-        """New call pattern (steering=None explicitly) works."""
+    async def test_generate_from_context_accepts_policy_kwarg(self):
+        """New call pattern (policy=None explicitly) works."""
         backend = DummyBackend(responses=["hello"])
         ctx = SimpleContext()
         mot, _new_ctx = await backend.generate_from_context(
-            CBlock("test"), ctx, steering=None
+            CBlock("test"), ctx, policy=None
         )
         assert mot.value == "hello"
 
-    def test_steering_capabilities_default_empty(self):
-        """Default steering_capabilities returns empty SteeringCapabilities."""
+    def test_supported_controls_default_empty(self):
+        """Default supported_controls returns empty frozenset."""
         backend = DummyBackend(responses=None)
-        caps = backend.steering_capabilities
-        assert caps.supported_control_types == frozenset()
+        assert backend.supported_controls == frozenset()

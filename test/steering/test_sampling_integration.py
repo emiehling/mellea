@@ -7,46 +7,39 @@ import pytest
 
 from mellea.backends.dummy import DummyBackend
 from mellea.core import ModelOutputThunk
-from mellea.steering import (
-    OutputControl,
-    StateControl,
-    SteeringCapabilities,
-    SteeringOptimizer,
-    SteeringPolicy,
-)
 from mellea.stdlib.components.instruction import Instruction
 from mellea.stdlib.context import SimpleContext
 from mellea.stdlib.sampling.base import RejectionSamplingStrategy
-
+from mellea.steering import BackendControl, Optimizer, Policy
 
 # --- Test fixtures ---
 
 
 @dataclass(frozen=True)
-class MockStateControl(StateControl):
+class MockBackendControl(BackendControl):
     label: str
 
 
 @dataclass(frozen=True)
-class MockOutputControl(OutputControl):
+class MockBackendControlAlt(BackendControl):
     value: float
 
 
-class RecordingOptimizer(SteeringOptimizer):
+class RecordingOptimizer(Optimizer):
     """Optimizer that records calls for assertion."""
 
     def __init__(self):
         self.compile_calls = []
         self.refine_calls = []
-        self._policy = SteeringPolicy(
-            state_controls=(MockStateControl(label="test"),),
+        self._policy = Policy(
+            backend_controls=(MockBackendControl(label="test"),)
         )
 
-    async def compile(self, requirements, capabilities, ctx=None, action=None):
-        self.compile_calls.append((requirements, capabilities))
+    async def compile(self, requirements, supported_controls, ctx=None, action=None):
+        self.compile_calls.append((requirements, supported_controls))
         return self._policy
 
-    async def refine(self, policy, validation_results, requirements, capabilities):
+    async def refine(self, policy, validation_results, requirements, supported_controls):
         self.refine_calls.append((policy, validation_results))
         return policy
 
@@ -54,85 +47,80 @@ class RecordingOptimizer(SteeringOptimizer):
 # --- Tests ---
 
 
-class TestSteeringForwardedToGeneration:
+class TestPolicyForwardedToGeneration:
     @pytest.mark.asyncio
-    async def test_steering_passed_to_generate(self):
-        """The steering policy is forwarded to backend.generate_from_context."""
-        # use a mock backend to capture the steering argument
+    async def test_policy_passed_to_generate(self):
+        """Backend controls from the policy are forwarded to backend.generate_from_context."""
+        # use a mock backend to capture the policy argument.
+        # give it supported_controls that support our control so it survives filtering.
         backend = AsyncMock()
         mot = ModelOutputThunk(value="output")
         mot._computed = True
-        backend.generate_from_context = AsyncMock(
-            return_value=(mot, SimpleContext())
-        )
-        backend.steering_capabilities = SteeringCapabilities()
+        backend.generate_from_context = AsyncMock(return_value=(mot, SimpleContext()))
+        backend.supported_controls = frozenset({MockBackendControlAlt})
 
-        policy = SteeringPolicy(
-            output_controls=(MockOutputControl(value=0.5),),
+        policy = Policy(
+            backend_controls=(MockBackendControlAlt(value=0.5),)
         )
         strategy = RejectionSamplingStrategy(loop_budget=1)
         action = Instruction(description="Test")
 
         # run sample - it will fail on the generate_log assertion but we can
-        # still check that steering was passed
+        # still check that policy was passed
         try:
             await strategy.sample(
-                action,
-                SimpleContext(),
-                backend,
-                requirements=None,
-                steering=policy,
+                action, SimpleContext(), backend, requirements=None, policy=policy
             )
         except AssertionError:
             # expected - DummyBackend doesn't set _generate_log
             pass
 
-        # verify steering was passed to generate_from_context
+        # verify the backend received the output control via the filtered backend policy
         gen_call = backend.generate_from_context.call_args
-        assert gen_call.kwargs.get("steering") is policy
+        forwarded = gen_call.kwargs.get("policy")
+        assert forwarded is not None
+        assert forwarded.backend_controls == (MockBackendControlAlt(value=0.5),)
 
 
-class TestSteeringNoneByDefault:
+class TestPolicyNoneByDefault:
     @pytest.mark.asyncio
-    async def test_no_steering_is_noop(self):
-        """When steering=None, behavior is identical to pre-steering."""
+    async def test_no_policy_is_noop(self):
+        """When policy=None, behavior is identical to pre-steering."""
         # use a mock backend that returns a proper MOT
         backend = AsyncMock()
         mot = ModelOutputThunk(value="hello")
         mot._computed = True
-        backend.generate_from_context = AsyncMock(
-            return_value=(mot, SimpleContext())
-        )
-        backend.steering_capabilities = SteeringCapabilities()
+        backend.generate_from_context = AsyncMock(return_value=(mot, SimpleContext()))
+        backend.supported_controls = frozenset()
 
         strategy = RejectionSamplingStrategy(loop_budget=1)
         action = Instruction(description="Test")
 
-        # run sample without steering
+        # run sample without policy
         try:
             await strategy.sample(
                 action,
                 SimpleContext(),
                 backend,
                 requirements=None,
-                # steering and optimizer default to None
+                # policy and optimizer default to None
             )
         except AssertionError:
             # expected - mock doesn't set _generate_log
             pass
 
-        # verify steering=None was passed
+        # verify policy=None was passed
         gen_call = backend.generate_from_context.call_args
-        assert gen_call.kwargs.get("steering") is None
+        assert gen_call.kwargs.get("policy") is None
 
 
-class TestSteeringNotPassedToValidation:
-    def test_validation_has_no_steering_parameter(self):
-        """Validate that mfuncs.avalidate does not accept steering parameter.
+class TestPolicyNotPassedToValidation:
+    def test_validation_has_no_policy_parameter(self):
+        """Validate that mfuncs.avalidate does not accept policy parameter.
 
         This test verifies the architectural enforcement: validation calls
-        cannot receive steering because the avalidate function signature
-        does not include a steering parameter.
+        cannot receive policy because the avalidate function signature
+        does not include a policy parameter.
         """
         import inspect
 
@@ -141,9 +129,9 @@ class TestSteeringNotPassedToValidation:
         sig = inspect.signature(mfuncs.avalidate)
         params = list(sig.parameters.keys())
 
-        # avalidate should NOT have steering parameter
-        assert "steering" not in params, (
-            "avalidate should not accept steering parameter - "
+        # avalidate should NOT have policy parameter
+        assert "policy" not in params, (
+            "avalidate should not accept policy parameter - "
             "this enforces the semantics/mechanisms separation"
         )
 
@@ -156,25 +144,21 @@ class TestOptimizerRefineIntegration:
         backend = AsyncMock()
         mot = ModelOutputThunk(value="hello")
         mot._computed = True
-        backend.generate_from_context = AsyncMock(
-            return_value=(mot, SimpleContext())
-        )
-        backend.steering_capabilities = SteeringCapabilities()
+        backend.generate_from_context = AsyncMock(return_value=(mot, SimpleContext()))
+        backend.supported_controls = frozenset()
 
-        policy = SteeringPolicy(
-            state_controls=(MockStateControl(label="test"),),
-        )
+        policy = Policy(backend_controls=(MockBackendControl(label="test"),))
         strategy = RejectionSamplingStrategy(loop_budget=1)
         action = Instruction(description="Test")
 
-        # run sample with steering but no optimizer - should not error
+        # run sample with policy but no optimizer - should not error
         try:
             await strategy.sample(
                 action,
                 SimpleContext(),
                 backend,
                 requirements=None,
-                steering=policy,
+                policy=policy,
                 optimizer=None,  # explicitly None
             )
         except AssertionError:
@@ -184,17 +168,15 @@ class TestOptimizerRefineIntegration:
         # if we got here without a different error, the test passes
 
     @pytest.mark.asyncio
-    async def test_refine_not_called_without_steering(self):
-        """Refine is not called when steering is None even if optimizer provided."""
+    async def test_refine_not_called_without_policy(self):
+        """Refine is not called when policy is None even if optimizer provided."""
         optimizer = RecordingOptimizer()
 
         backend = AsyncMock()
         mot = ModelOutputThunk(value="hello")
         mot._computed = True
-        backend.generate_from_context = AsyncMock(
-            return_value=(mot, SimpleContext())
-        )
-        backend.steering_capabilities = SteeringCapabilities()
+        backend.generate_from_context = AsyncMock(return_value=(mot, SimpleContext()))
+        backend.supported_controls = frozenset()
 
         strategy = RejectionSamplingStrategy(loop_budget=1)
         action = Instruction(description="Test")
@@ -205,11 +187,11 @@ class TestOptimizerRefineIntegration:
                 SimpleContext(),
                 backend,
                 requirements=None,
-                steering=None,  # no steering
+                policy=None,  # no policy
                 optimizer=optimizer,  # optimizer provided
             )
         except AssertionError:
             pass
 
-        # refine should not have been called since steering was None
+        # refine should not have been called since policy was None
         assert len(optimizer.refine_calls) == 0

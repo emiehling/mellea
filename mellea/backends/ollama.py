@@ -11,12 +11,9 @@ from typing import TYPE_CHECKING, Any, overload
 import ollama
 
 if TYPE_CHECKING:
-    from ..steering.policy import SteeringPolicy
+    from ..steering.policy import Policy
 
 from tqdm import tqdm
-
-from ..steering.capabilities import SteeringCapabilities
-from ..stdlib.controls.output import StopSequenceControl, TemperatureOverrideControl
 
 from ..backends import ModelIdentifier, model_ids
 from ..core import (
@@ -35,6 +32,8 @@ from ..core.base import AbstractMelleaTool
 from ..formatters import ChatFormatter, TemplateFormatter
 from ..helpers import ClientCache, get_current_event_loop, send_to_queue
 from ..stdlib.components import Message
+from ..stdlib.controls.stop_sequence import StopSequence
+from ..stdlib.controls.temperature import Temperature
 from ..stdlib.requirements import ALoraRequirement
 from ..telemetry.backend_instrumentation import (
     instrument_generate_from_context,
@@ -121,26 +120,19 @@ class OllamaModelBackend(FormatterBackend):
         }
 
     @property
-    def steering_capabilities(self) -> SteeringCapabilities:
-        """Return the steering capabilities supported by Ollama."""
-        return SteeringCapabilities(
-            supported_control_types=frozenset(
-                {
-                    StopSequenceControl,
-                    TemperatureOverrideControl,
-                }
-            )
-        )
+    def supported_controls(self) -> frozenset[type]:
+        """Return the steering control types supported by Ollama."""
+        return frozenset({StopSequence, Temperature})
 
     def _apply_steering_to_options(
-        self, model_options: dict, steering: SteeringPolicy
+        self, model_options: dict, policy: Policy
     ) -> dict:
         """Translate steering controls to Ollama model options."""
-        for ctrl in steering.output_controls:
+        for ctrl in policy.backend_controls:
             match ctrl:
-                case TemperatureOverrideControl(temperature=t):
+                case Temperature(temperature=t):
                     model_options["temperature"] = t
-                case StopSequenceControl(sequences=seqs):
+                case StopSequence(sequences=seqs):
                     existing = model_options.get("stop", [])
                     model_options["stop"] = list(existing) + list(seqs)
         return model_options
@@ -292,7 +284,7 @@ class OllamaModelBackend(FormatterBackend):
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
         tool_calls: bool = False,
-        steering: SteeringPolicy | None = None,
+        policy: Policy | None = None,
     ) -> tuple[ModelOutputThunk[C], Context]:
         """See `generate_from_chat_context`."""
         from ..telemetry.backend_instrumentation import start_generate_span
@@ -301,9 +293,9 @@ class OllamaModelBackend(FormatterBackend):
         span = start_generate_span(self, action, ctx, format, tool_calls)
 
         # apply steering controls to model options
-        if steering is not None:
+        if policy is not None:
             model_options = dict(model_options) if model_options else {}
-            model_options = self._apply_steering_to_options(model_options, steering)
+            model_options = self._apply_steering_to_options(model_options, policy)
 
         assert ctx.is_chat_context, (
             "The ollama backend only supports chat-like contexts."
