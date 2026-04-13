@@ -1,0 +1,116 @@
+---
+title: "cli.fix.genstub_fixer"
+sidebarTitle: "cli.fix.genstub_fixer"
+description: "Line-based detection and rewriting of old genslot imports and class names."
+---
+
+
+import { SidebarFix } from "/snippets/SidebarFix.mdx";
+
+<SidebarFix />
+
+Line-based detection and rewriting of old genslot imports and class names.
+
+
+
+
+
+Targets:
+- `from mellea.stdlib.components.genslot import ...` → `genstub`
+- `import mellea.stdlib.components.genslot [as ...]` → `genstub`
+- `from mellea.stdlib.components import genslot [as ...]` → `genstub`
+- `from .genslot import ...` (relative imports) → `genstub`
+- `GenerativeSlot` → `GenerativeStub` (and Sync/Async variants)
+
+
+## Functions
+
+<div className="w-full h-px bg-gray-200 dark:bg-gray-700 my-4" />
+
+
+### <span className="ml-2 inline-flex items-center rounded-full px-2 py-1 text-[0.7rem] font-bold tracking-wide bg-[#3064E3]/20 text-[#1D4ED8]">FUNC</span> `find_genslot_refs` <sup><a href="https://github.com/generative-computing/mellea/blob/v0.4.2/cli/fix/genstub_fixer.py#L116" target="_blank"><Icon icon="github" style="width: 14px; height: 14px;" /></a></sup>
+
+```python
+find_genslot_refs(source: str, filepath: Path) -> list[GenStubFixLocation]
+```
+
+
+Scan *source* for old genslot references and return their locations.
+
+**Args:**
+- `source`: Python source text.
+- `filepath`: Used for the `filepath` field in returned locations.
+
+**Returns:**
+- List of locations that would be changed.
+
+
+<div className="w-full h-px bg-gray-200 dark:bg-gray-700 my-4" />
+
+### <span className="ml-2 inline-flex items-center rounded-full px-2 py-1 text-[0.7rem] font-bold tracking-wide bg-[#3064E3]/20 text-[#1D4ED8]">FUNC</span> `fix_genslot_file` <sup><a href="https://github.com/generative-computing/mellea/blob/v0.4.2/cli/fix/genstub_fixer.py#L136" target="_blank"><Icon icon="github" style="width: 14px; height: 14px;" /></a></sup>
+
+```python
+fix_genslot_file(filepath: Path) -> list[GenStubFixLocation]
+```
+
+
+Fix a single file.
+
+**Args:**
+- `filepath`: Path to the Python file to fix.
+- `dry_run`: If `True`, return locations without modifying the file.
+
+**Returns:**
+- List of locations found (and optionally fixed).
+
+
+<div className="w-full h-px bg-gray-200 dark:bg-gray-700 my-4" />
+
+### <span className="ml-2 inline-flex items-center rounded-full px-2 py-1 text-[0.7rem] font-bold tracking-wide bg-[#3064E3]/20 text-[#1D4ED8]">FUNC</span> `fix_genslot_path` <sup><a href="https://github.com/generative-computing/mellea/blob/v0.4.2/cli/fix/genstub_fixer.py#L163" target="_blank"><Icon icon="github" style="width: 14px; height: 14px;" /></a></sup>
+
+```python
+fix_genslot_path(path: Path) -> GenStubFixResult
+```
+
+
+Fix a file or directory recursively.
+
+**Args:**
+- `path`: File or directory to process.
+- `dry_run`: If `True`, report locations without modifying files.
+
+**Returns:**
+- Aggregated result with all fix locations and summary counts.
+
+
+<div className="w-full h-px bg-gray-200 dark:bg-gray-700 my-4" />
+
+## Classes
+
+<div className="w-full h-px bg-gray-200 dark:bg-gray-700 my-4" />
+
+
+### <span className="ml-2 inline-flex items-center rounded-full px-2 py-1 text-[0.7rem] font-bold tracking-wide bg-[#4ADE8033]/20 text-[#15803D]">CLASS</span> `GenStubFixLocation` <sup><a href="https://github.com/generative-computing/mellea/blob/v0.4.2/cli/fix/genstub_fixer.py#L54" target="_blank"><Icon icon="github" style="width: 14px; height: 14px;" /></a></sup>
+
+
+A single replacement within a file.
+
+**Args:**
+- `filepath`: Path to the source file.
+- `line`: One-based line number.
+- `description`: Human-readable description of the replacement.
+
+
+<div className="w-full h-px bg-gray-200 dark:bg-gray-700 my-4" />
+
+### <span className="ml-2 inline-flex items-center rounded-full px-2 py-1 text-[0.7rem] font-bold tracking-wide bg-[#4ADE8033]/20 text-[#15803D]">CLASS</span> `GenStubFixResult` <sup><a href="https://github.com/generative-computing/mellea/blob/v0.4.2/cli/fix/genstub_fixer.py#L69" target="_blank"><Icon icon="github" style="width: 14px; height: 14px;" /></a></sup>
+
+
+Aggregated results across all scanned files.
+
+**Args:**
+- `locations`: Individual fix locations.
+- `total_fixes`: Total replacements made (or found in dry-run).
+- `files_affected`: Number of distinct files modified.
+
+<div className="w-full h-px bg-gray-200 dark:bg-gray-700 my-4" />
