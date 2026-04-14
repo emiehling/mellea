@@ -1,7 +1,10 @@
 """This module holds shim backends used for smoke tests."""
 
+from collections.abc import Sequence
+
 from ..core import (
     Backend,
+    BackendCapabilities,
     BaseModelSubclass,
     C,
     CBlock,
@@ -32,6 +35,11 @@ class DummyBackend(Backend):
         """Initialize the dummy backend with an optional list of predetermined responses."""
         self.responses = responses
         self.idx = 0
+
+    @property
+    def capabilities(self) -> BackendCapabilities:
+        """Returns empty capabilities -- the dummy backend supports no steering."""
+        return BackendCapabilities()
 
     async def _generate_from_context(
         self,
@@ -76,3 +84,32 @@ class DummyBackend(Backend):
             raise Exception(
                 f"DummyBackend expected no more than {len(self.responses)} calls."
             )
+
+    async def generate_from_raw(
+        self,
+        actions: Sequence[Component[C] | CBlock],
+        ctx: Context,
+        *,
+        format: type[BaseModelSubclass] | None = None,
+        model_options: dict | None = None,
+        tool_calls: bool = False,
+    ) -> list[ModelOutputThunk]:
+        """Return predetermined responses for each action.
+
+        Args:
+            actions: List of actions to generate responses for.
+            ctx: Context (ignored).
+            format: Must be ``None``; constrained decoding is not supported.
+            model_options: Ignored.
+            tool_calls: Ignored.
+
+        Returns:
+            List of ``ModelOutputThunk`` instances, one per action.
+        """
+        results = []
+        for _ in actions:
+            mot, _ = await self._generate_from_context(
+                actions[0], ctx, format=format
+            )
+            results.append(mot)
+        return results

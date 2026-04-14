@@ -16,6 +16,7 @@ from ...core import (
     Backend,
     CBlock,
     Component,
+    Composer,
     Context,
     FancyLogger,
     ModelOutputThunk,
@@ -300,6 +301,7 @@ class ExtractedArgs:
     backend: Backend | None = None
     model_options: dict | None = None
     strategy: SamplingStrategy | None = None
+    composer: Composer | None = None
 
     precondition_requirements: list[Requirement | str] | None = None
     """requirements used to check the input"""
@@ -394,6 +396,7 @@ class GenerativeStub(Component[R], Generic[P, R]):
             precondition_requirements: list[Requirement | str] | None = None,
             requirements: list[Requirement | str] | None = None,
             strategy: SamplingStrategy | None = None,
+            composer: Composer | None = None,
             model_options: dict | None = None,
             *args,
             **kwargs,
@@ -404,6 +407,7 @@ class GenerativeStub(Component[R], Generic[P, R]):
             extracted.precondition_requirements = precondition_requirements
             extracted.requirements = requirements
             extracted.strategy = strategy
+            extracted.composer = composer
             extracted.model_options = model_options
             extracted.f_args = args
             extracted.f_kwargs = kwargs
@@ -415,6 +419,7 @@ class GenerativeStub(Component[R], Generic[P, R]):
             precondition_requirements: list[Requirement | str] | None = None,
             requirements: list[Requirement | str] | None = None,
             strategy: SamplingStrategy | None = None,
+            composer: Composer | None = None,
             model_options: dict | None = None,
             *args,
             **kwargs,
@@ -426,6 +431,7 @@ class GenerativeStub(Component[R], Generic[P, R]):
             extracted.precondition_requirements = precondition_requirements
             extracted.requirements = requirements
             extracted.strategy = strategy
+            extracted.composer = composer
             extracted.model_options = model_options
             extracted.f_args = args
             extracted.f_kwargs = kwargs
@@ -537,6 +543,7 @@ class SyncGenerativeStub(GenerativeStub, Generic[P, R]):
         precondition_requirements: list[Requirement | str] | None = None,
         requirements: list[Requirement | str] | None = None,
         strategy: SamplingStrategy | None = None,
+        composer: Composer | None = None,
         model_options: dict | None = None,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -549,6 +556,7 @@ class SyncGenerativeStub(GenerativeStub, Generic[P, R]):
         precondition_requirements: list[Requirement | str] | None = None,
         requirements: list[Requirement | str] | None = None,
         strategy: SamplingStrategy | None = None,
+        composer: Composer | None = None,
         model_options: dict | None = None,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -629,12 +637,19 @@ class SyncGenerativeStub(GenerativeStub, Generic[P, R]):
                 "calling a generative stub with precondition requirements but no args to validate the preconditions against; ignoring precondition validation"
             )
 
+        effective_composer = (
+            extracted.composer
+            if extracted.composer is not None
+            else (extracted.m.composer if extracted.m is not None else None)
+        )
+
         response, context = None, None
         if extracted.m is not None:
             response = extracted.m.act(
                 stub_copy,
                 requirements=stub_copy.requirements,
                 strategy=extracted.strategy,
+                composer=effective_composer,
                 format=self._response_model,
                 model_options=extracted.model_options,
             )
@@ -648,6 +663,7 @@ class SyncGenerativeStub(GenerativeStub, Generic[P, R]):
                 extracted.backend,
                 requirements=stub_copy.requirements,
                 strategy=extracted.strategy,
+                composer=effective_composer,
                 format=self._response_model,
                 model_options=extracted.model_options,
             )
@@ -670,6 +686,7 @@ class AsyncGenerativeStub(GenerativeStub, Generic[P, R]):
         precondition_requirements: list[Requirement | str] | None = None,
         requirements: list[Requirement | str] | None = None,
         strategy: SamplingStrategy | None = None,
+        composer: Composer | None = None,
         model_options: dict | None = None,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -682,6 +699,7 @@ class AsyncGenerativeStub(GenerativeStub, Generic[P, R]):
         precondition_requirements: list[Requirement | str] | None = None,
         requirements: list[Requirement | str] | None = None,
         strategy: SamplingStrategy | None = None,
+        composer: Composer | None = None,
         model_options: dict | None = None,
         *args: P.args,
         **kwargs: P.kwargs,
@@ -768,11 +786,18 @@ class AsyncGenerativeStub(GenerativeStub, Generic[P, R]):
                     "calling a generative stub with precondition requirements but no args to validate the preconditions against; ignoring precondition validation"
                 )
 
+            effective_composer = (
+                extracted.composer
+                if extracted.composer is not None
+                else (extracted.m.composer if extracted.m is not None else None)
+            )
+
             if extracted.m is not None:
                 response = await extracted.m.aact(
                     stub_copy,
                     requirements=stub_copy.requirements,
                     strategy=extracted.strategy,
+                    composer=effective_composer,
                     format=self._response_model,
                     model_options=extracted.model_options,
                     await_result=True,
@@ -787,6 +812,7 @@ class AsyncGenerativeStub(GenerativeStub, Generic[P, R]):
                     extracted.backend,
                     requirements=stub_copy.requirements,
                     strategy=extracted.strategy,
+                    composer=effective_composer,
                     format=self._response_model,
                     model_options=extracted.model_options,
                     await_result=True,

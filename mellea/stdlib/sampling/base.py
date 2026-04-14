@@ -23,6 +23,7 @@ from ...core import (
     Backend,
     BaseModelSubclass,
     Component,
+    Composer,
     ComputedModelOutputThunk,
     Context,
     FancyLogger,
@@ -30,6 +31,7 @@ from ...core import (
     S,
     SamplingResult,
     SamplingStrategy,
+    SteeringPolicy,
     ValidationResult,
 )
 from ...plugins.manager import has_plugins, invoke_hook
@@ -116,6 +118,7 @@ class BaseSamplingStrategy(SamplingStrategy):
         backend: Backend,
         requirements: list[Requirement] | None,
         *,
+        composer: Composer | None = None,
         validation_ctx: Context | None = None,
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -129,6 +132,8 @@ class BaseSamplingStrategy(SamplingStrategy):
             context: The context to be passed to the sampling strategy.
             backend: The backend used for generating samples.
             requirements: List of requirements to test against (merged with global requirements).
+            composer: Optional ``Composer`` for constructing and updating steering policies
+                during the sampling loop.
             validation_ctx: Optional context to use for validation. If None, validation_ctx = ctx.
             format: output format for structured outputs.
             model_options: model options to pass to the backend during generation / validation.
@@ -162,6 +167,12 @@ class BaseSamplingStrategy(SamplingStrategy):
         elif requirements is not None:
             reqs += requirements
         reqs = list(set(reqs))
+
+        # Compose initial steering policy if a composer is provided.
+        current_steering_policy = SteeringPolicy.empty()
+        if composer is not None:
+            current_steering_policy = composer.compose(reqs, backend.capabilities)
+            backend.attach(current_steering_policy)
 
         loop_count = 0
 
@@ -212,6 +223,10 @@ class BaseSamplingStrategy(SamplingStrategy):
             # TODO: See if there's a more elegant way for this so that each sampling
             # strategy doesn't have to re-implement it.
             result.parsed_repr = action.parse(result)
+
+            # Detach steering policy before validation (DR#1: validation is unsteered).
+            if composer is not None:
+                backend.detach()
 
             # validation pass
             val_scores_co = mfuncs.avalidate(
@@ -286,6 +301,9 @@ class BaseSamplingStrategy(SamplingStrategy):
                     sample_validations=sampled_scores,
                     sample_contexts=sample_contexts,
                     sample_actions=sampled_actions,
+                    steering_policy=current_steering_policy
+                    if composer is not None
+                    else None,
                 )
 
             else:
@@ -312,6 +330,13 @@ class BaseSamplingStrategy(SamplingStrategy):
                 sampled_scores,
             )
 
+            # Update steering policy after repair and reattach for next generation.
+            if composer is not None:
+                current_steering_policy = composer.update(
+                    current_steering_policy, sampled_scores[-1], backend.capabilities
+                )
+                backend.attach(current_steering_policy)
+
             # --- sampling_repair hook ---
             if has_plugins(HookType.SAMPLING_REPAIR):
                 from ...plugins.hooks.sampling import SamplingRepairPayload
@@ -328,6 +353,10 @@ class BaseSamplingStrategy(SamplingStrategy):
                 await invoke_hook(
                     HookType.SAMPLING_REPAIR, repair_payload, backend=backend
                 )
+
+        # Detach policy after loop to avoid leaking state.
+        if composer is not None:
+            backend.detach()
 
         flog.info(
             f"Invoking select_from_failure after {len(sampled_results)} failed attempts."
@@ -372,6 +401,7 @@ class BaseSamplingStrategy(SamplingStrategy):
             sample_validations=sampled_scores,
             sample_actions=sampled_actions,
             sample_contexts=sample_contexts,
+            steering_policy=current_steering_policy if composer is not None else None,
         )
 
 

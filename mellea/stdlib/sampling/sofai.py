@@ -18,6 +18,7 @@ from ...core import (
     Backend,
     BaseModelSubclass,
     Component,
+    Composer,
     ComputedModelOutputThunk,
     Context,
     FancyLogger,
@@ -561,6 +562,7 @@ class SOFAISamplingStrategy(SamplingStrategy):
         backend: Backend,
         requirements: list[Requirement] | None,
         *,
+        composer: Composer | None = None,
         validation_ctx: Context | None = None,
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -590,6 +592,7 @@ class SOFAISamplingStrategy(SamplingStrategy):
             context: The session context (must be ChatContext).
             backend: Session backend (used for validation fallback).
             requirements: Requirements to validate against.
+            composer: Optional ``Composer`` for constructing and updating steering policies.
             validation_ctx: Optional separate validation context (unused).
             format: Output format for structured outputs.
             model_options: Model options to pass to backends.

@@ -13,11 +13,13 @@ import litellm.litellm_core_utils.get_supported_openai_params
 
 from ..backends import model_ids
 from ..core import (
+    BackendCapabilities,
     BaseModelSubclass,
     C,
     CBlock,
     Component,
     Context,
+    ControlCategory,
     FancyLogger,
     GenerateLog,
     GenerateType,
@@ -124,6 +126,15 @@ class LiteLLMBackend(FormatterBackend):
         }
 
         self._past_event_loops: set[int] = set()
+
+    @property
+    def capabilities(self) -> BackendCapabilities:
+        """Returns capabilities for the LiteLLM backend (input and output controls only)."""
+        return BackendCapabilities(
+            supported_categories=frozenset(
+                {ControlCategory.INPUT, ControlCategory.OUTPUT}
+            )
+        )
 
     async def _generate_from_context(
         self,

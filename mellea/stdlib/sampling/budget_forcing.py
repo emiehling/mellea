@@ -9,6 +9,7 @@ from ...core import (
     Backend,
     BaseModelSubclass,
     Component,
+    Composer,
     ComputedModelOutputThunk,
     Context,
     FancyLogger,
@@ -98,6 +99,7 @@ class BudgetForcingSamplingStrategy(RejectionSamplingStrategy):
         backend: Backend,
         requirements: list[Requirement] | None,
         *,
+        composer: Composer | None = None,
         validation_ctx: Context | None = None,
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -111,6 +113,7 @@ class BudgetForcingSamplingStrategy(RejectionSamplingStrategy):
             context: The context to be passed to the sampling strategy.
             backend: The backend used for generating samples.
             requirements: List of requirements to test against (merged with global requirements).
+            composer: Optional ``Composer`` for constructing and updating steering policies.
             validation_ctx: Optional context to use for validation. If None, validation_ctx = ctx.
             format: output format for structured outputs.
             model_options: model options to pass to the backend during generation / validation.

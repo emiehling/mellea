@@ -11,6 +11,7 @@ from ...core import (
     Backend,
     BaseModelSubclass,
     Component,
+    Composer,
     Context,
     Requirement,
     S,
@@ -101,6 +102,7 @@ class BaseMBRDSampling(RejectionSamplingStrategy):
         backend: Backend,
         requirements: list[Requirement] | None,
         *,
+        composer: Composer | None = None,
         validation_ctx: Context | None = None,
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -114,6 +116,7 @@ class BaseMBRDSampling(RejectionSamplingStrategy):
             context: The context to be passed to the sampling strategy.
             backend: The backend used for generating samples.
             requirements: List of requirements to test against (merged with global requirements).
+            composer: Optional ``Composer`` for steering. Passed through to inner sampling calls.
             validation_ctx: Optional context to use for validation. If None, validation_ctx = ctx.
             format: output format for structured outputs; ignored for this sampling strategy.
             model_options: model options to pass to the backend during generation / validation.
@@ -132,6 +135,7 @@ class BaseMBRDSampling(RejectionSamplingStrategy):
                     context,
                     backend,
                     requirements,
+                    composer=composer,
                     validation_ctx=validation_ctx,
                     model_options=model_options,
                     tool_calls=tool_calls,

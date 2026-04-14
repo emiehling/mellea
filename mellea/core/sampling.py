@@ -21,6 +21,7 @@ from .base import (
     S,
 )
 from .requirement import Requirement, ValidationResult
+from .steering import Composer, SteeringPolicy
 
 
 class SamplingResult(CBlock, Generic[S]):
@@ -34,6 +35,8 @@ class SamplingResult(CBlock, Generic[S]):
             results; each inner list contains one tuple per requirement evaluated.
         sample_actions (list[Component] | None): The actions used to produce each generation.
         sample_contexts (list[Context] | None): The contexts associated with each generation.
+        steering_policy (SteeringPolicy | None): The final steering policy used during sampling,
+            or ``None`` if no steering was applied.
 
     Attributes:
         result_index (int): Index into ``sample_generations`` identifying the chosen final output.
@@ -46,6 +49,7 @@ class SamplingResult(CBlock, Generic[S]):
             always a list (``None`` input is normalised to ``[]``).
         sample_contexts (list[Context]): The contexts associated with each generation;
             always a list (``None`` input is normalised to ``[]``).
+        steering_policy (SteeringPolicy | None): The final steering policy, or ``None``.
     """
 
     def __init__(
@@ -58,6 +62,7 @@ class SamplingResult(CBlock, Generic[S]):
         | None = None,
         sample_actions: list[Component] | None = None,
         sample_contexts: list[Context] | None = None,
+        steering_policy: SteeringPolicy | None = None,
     ):
         """Initialize SamplingResult with the chosen output index, success flag, and generation history."""
         if sample_generations is None:
@@ -83,6 +88,7 @@ class SamplingResult(CBlock, Generic[S]):
         self.sample_validations = sample_validations
         self.sample_actions = sample_actions
         self.sample_contexts = sample_contexts
+        self.steering_policy = steering_policy
 
     @property
     def result(self) -> ComputedModelOutputThunk[S]:
@@ -120,6 +126,7 @@ class SamplingStrategy(abc.ABC):
         backend: Backend,
         requirements: list[Requirement] | None,
         *,
+        composer: Composer | None = None,
         validation_ctx: Context | None = None,
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -134,6 +141,8 @@ class SamplingStrategy(abc.ABC):
             context: The context to be passed to the sampling strategy.
             backend: The backend used for generating samples.
             requirements: List of requirements to test against (merged with global requirements).
+            composer: Optional ``Composer`` for constructing and updating steering policies
+                during the sampling loop.
             validation_ctx: Optional context to use for validation. If None, validation_ctx = ctx.
             format: output format for structured outputs.
             model_options: model options to pass to the backend during generation / validation.

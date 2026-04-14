@@ -21,6 +21,7 @@ import typing_extensions
 from ..plugins.manager import has_plugins, invoke_hook
 from ..plugins.types import HookType
 from .base import C, CBlock, Component, Context, ModelOutputThunk
+from .steering import BackendCapabilities, SteeringPolicy
 from .utils import FancyLogger
 
 # Necessary to define a type variable that has a default value.
@@ -206,6 +207,46 @@ class Backend(abc.ABC):
                 f"generate_from_chat_context awaited on {len(_to_compute)} uncomputed mots."
             )
         await asyncio.gather(*coroutines)
+
+    @property
+    @abc.abstractmethod
+    def capabilities(self) -> BackendCapabilities:
+        """Returns the steering capabilities of this backend.
+
+        Returns:
+            A ``BackendCapabilities`` descriptor declaring which control categories,
+            logits processors, adapter loading, and forward hooks this backend supports.
+        """
+        ...
+
+    def attach(self, policy: SteeringPolicy) -> None:
+        """Attach a steering policy to influence subsequent generation calls.
+
+        The policy is stored on the backend instance and applied during the next
+        ``generate_from_context()`` call. Subclasses may override to perform
+        backend-specific attachment logic (e.g., resolving artifact references,
+        loading adapters).
+
+        Args:
+            policy: The steering policy to attach.
+        """
+        self._steering_policy: SteeringPolicy = policy
+
+    def detach(self) -> SteeringPolicy | None:
+        """Remove and return the currently attached steering policy.
+
+        Returns:
+            The previously attached ``SteeringPolicy``, or ``None`` if no policy
+            was attached.
+        """
+        policy = getattr(self, "_steering_policy", None)
+        self._steering_policy = SteeringPolicy.empty()
+        return policy
+
+    @property
+    def steering_policy(self) -> SteeringPolicy:
+        """The currently attached steering policy, or an empty policy if none is attached."""
+        return getattr(self, "_steering_policy", SteeringPolicy.empty())
 
 
 def generate_walk(c: CBlock | Component | ModelOutputThunk) -> list[ModelOutputThunk]:

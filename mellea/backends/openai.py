@@ -17,11 +17,13 @@ from mellea.stdlib.requirements.requirement import ALoraRequirement
 
 from ..backends import ModelIdentifier, model_ids
 from ..core import (
+    BackendCapabilities,
     BaseModelSubclass,
     C,
     CBlock,
     Component,
     Context,
+    ControlCategory,
     FancyLogger,
     GenerateLog,
     GenerateType,
@@ -328,6 +330,15 @@ class OpenAIBackend(FormatterBackend):
             model_opts = self.filter_completions_kwargs(backend_specific)
 
         return model_opts
+
+    @property
+    def capabilities(self) -> BackendCapabilities:
+        """Returns capabilities for the OpenAI backend (input and output controls only)."""
+        return BackendCapabilities(
+            supported_categories=frozenset(
+                {ControlCategory.INPUT, ControlCategory.OUTPUT}
+            )
+        )
 
     async def _generate_from_context(
         self,

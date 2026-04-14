@@ -30,18 +30,29 @@ from .base import (
 from .formatter import Formatter
 from .requirement import Requirement, ValidationResult, default_output_to_bool
 from .sampling import SamplingResult, SamplingStrategy
+from .steering import (
+    BackendCapabilities,
+    Composer,
+    Control,
+    ControlCategory,
+    SteeringPolicy,
+)
 from .utils import FancyLogger
 
 __all__ = [
     "Backend",
+    "BackendCapabilities",
     "BaseModelSubclass",
     "C",
     "CBlock",
     "Component",
     "ComponentParseError",
+    "Composer",
     "ComputedModelOutputThunk",
     "Context",
     "ContextTurn",
+    "Control",
+    "ControlCategory",
     "FancyLogger",
     "Formatter",
     "GenerateLog",
@@ -53,6 +64,7 @@ __all__ = [
     "S",
     "SamplingResult",
     "SamplingStrategy",
+    "SteeringPolicy",
     "TemplateRepresentation",
     "ValidationResult",
     "blockify",

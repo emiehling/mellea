@@ -11,11 +11,13 @@ from tqdm import tqdm
 
 from ..backends import ModelIdentifier, model_ids
 from ..core import (
+    BackendCapabilities,
     BaseModelSubclass,
     C,
     CBlock,
     Component,
     Context,
+    ControlCategory,
     FancyLogger,
     GenerateLog,
     GenerateType,
@@ -257,6 +259,15 @@ class OllamaModelBackend(FormatterBackend):
             model_options, self.from_mellea_model_opts_map
         )
         return ModelOption.remove_special_keys(backend_specific)
+
+    @property
+    def capabilities(self) -> BackendCapabilities:
+        """Returns capabilities for the Ollama backend (input and output controls only)."""
+        return BackendCapabilities(
+            supported_categories=frozenset(
+                {ControlCategory.INPUT, ControlCategory.OUTPUT}
+            )
+        )
 
     async def _generate_from_context(
         self,

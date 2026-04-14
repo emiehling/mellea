@@ -16,11 +16,13 @@ from ibm_watsonx_ai.foundation_models.schema import TextChatParameters
 
 from ..backends import ModelIdentifier, model_ids
 from ..core import (
+    BackendCapabilities,
     BaseModelSubclass,
     C,
     CBlock,
     Component,
     Context,
+    ControlCategory,
     FancyLogger,
     GenerateLog,
     GenerateType,
@@ -262,6 +264,15 @@ class WatsonxAIBackend(FormatterBackend):
             model_opts = ModelOption.remove_special_keys(backend_specific)
 
         return model_opts
+
+    @property
+    def capabilities(self) -> BackendCapabilities:
+        """Returns capabilities for the WatsonX backend (input and output controls only)."""
+        return BackendCapabilities(
+            supported_categories=frozenset(
+                {ControlCategory.INPUT, ControlCategory.OUTPUT}
+            )
+        )
 
     async def _generate_from_context(
         self,

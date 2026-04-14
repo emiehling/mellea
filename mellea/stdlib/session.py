@@ -23,6 +23,7 @@ from ..core import (
     BaseModelSubclass,
     CBlock,
     Component,
+    Composer,
     ComputedModelOutputThunk,
     Context,
     FancyLogger,
@@ -131,6 +132,7 @@ def start_session(
     *,
     model_options: dict | None = None,
     plugins: list[Any] | None = None,
+    composer: Composer | None = None,
     **backend_kwargs,
 ) -> MelleaSession:
     """Start a new Mellea session. Can be used as a context manager or called directly.
@@ -157,6 +159,7 @@ def start_session(
         plugins: Optional list of plugins scoped to this session. Accepts
             ``@hook``-decorated functions, ``@plugin``-decorated class instances,
             ``MelleaPlugin`` instances, or ``PluginSet`` instances.
+        composer: Optional ``Composer`` for constructing and updating steering policies.
         **backend_kwargs: Additional keyword arguments passed to the backend constructor.
 
     Returns:
@@ -250,7 +253,7 @@ def start_session(
             + (f", model_options={model_options}" if model_options else "")
         )
 
-        session = MelleaSession(backend, ctx)
+        session = MelleaSession(backend, ctx, composer=composer)
 
         # Register session-scoped plugins
         if plugins:
@@ -290,6 +293,9 @@ class MelleaSession:
             session.
         ctx (Context | None): The conversation context. Defaults to a new
             ``SimpleContext`` if ``None``.
+        composer (Composer | None): Optional default composer for steering
+            model generation. Can be overridden per-call in ``act``,
+            ``instruct``, ``aact``, and ``ainstruct``.
 
     Attributes:
         ctx (Context): The active conversation context; never ``None`` (defaults
@@ -300,13 +306,19 @@ class MelleaSession:
 
     ctx: Context
 
-    def __init__(self, backend: Backend, ctx: Context | None = None):
+    def __init__(
+        self,
+        backend: Backend,
+        ctx: Context | None = None,
+        composer: Composer | None = None,
+    ):
         """Initialize MelleaSession with a backend and optional conversation context."""
         import uuid
 
         self.id = str(uuid.uuid4())
         self.backend = backend
         self.ctx: Context = ctx if ctx is not None else SimpleContext()
+        self.composer = composer
         self._session_logger = FancyLogger.get_logger()
         self._context_token = None
         self._session_span = None
@@ -334,7 +346,7 @@ class MelleaSession:
 
     def __copy__(self):
         """Use self.clone. Copies the current session but keeps references to the backend and context."""
-        new = MelleaSession(backend=self.backend, ctx=self.ctx)
+        new = MelleaSession(backend=self.backend, ctx=self.ctx, composer=self.composer)
         new._session_logger = self._session_logger
         # Explicitly don't copy over the _context_token.
 
@@ -407,6 +419,7 @@ class MelleaSession:
         *,
         requirements: list[Requirement] | None = None,
         strategy: SamplingStrategy | None = RejectionSamplingStrategy(loop_budget=2),
+        composer: Composer | None = None,
         return_sampling_results: Literal[False] = False,
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -420,6 +433,7 @@ class MelleaSession:
         *,
         requirements: list[Requirement] | None = None,
         strategy: SamplingStrategy | None = RejectionSamplingStrategy(loop_budget=2),
+        composer: Composer | None = None,
         return_sampling_results: Literal[True],
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -432,6 +446,7 @@ class MelleaSession:
         *,
         requirements: list[Requirement] | None = None,
         strategy: SamplingStrategy | None = RejectionSamplingStrategy(loop_budget=2),
+        composer: Composer | None = None,
         return_sampling_results: bool = False,
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -443,6 +458,7 @@ class MelleaSession:
             action: the Component from which to generate.
             requirements: used as additional requirements when a sampling strategy is provided
             strategy: a SamplingStrategy that describes the strategy for validating and repairing/retrying for the instruct-validate-repair pattern. None means that no particular sampling strategy is used.
+            composer: Optional ``Composer`` for constructing and updating steering policies.
             return_sampling_results: attach the (successful and failed) sampling attempts to the results.
             format: if set, the BaseModel to use for constrained decoding.
             model_options: additional model options, which will upsert into the model/backend's defaults.
@@ -451,12 +467,14 @@ class MelleaSession:
         Returns:
             A ModelOutputThunk if `return_sampling_results` is `False`, else returns a `SamplingResult`.
         """
+        effective_composer = composer if composer is not None else self.composer
         r = mfuncs.act(
             action,
             context=self.ctx,
             backend=self.backend,
             requirements=requirements,
             strategy=strategy,
+            composer=effective_composer,
             return_sampling_results=return_sampling_results,
             format=format,
             model_options=model_options,
@@ -484,6 +502,7 @@ class MelleaSession:
         prefix: str | CBlock | None = None,
         output_prefix: str | CBlock | None = None,
         strategy: SamplingStrategy | None = RejectionSamplingStrategy(loop_budget=2),
+        composer: Composer | None = None,
         return_sampling_results: Literal[False] = False,
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -503,6 +522,7 @@ class MelleaSession:
         prefix: str | CBlock | None = None,
         output_prefix: str | CBlock | None = None,
         strategy: SamplingStrategy | None = RejectionSamplingStrategy(loop_budget=2),
+        composer: Composer | None = None,
         return_sampling_results: Literal[True],
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -521,6 +541,7 @@ class MelleaSession:
         prefix: str | CBlock | None = None,
         output_prefix: str | CBlock | None = None,
         strategy: SamplingStrategy | None = RejectionSamplingStrategy(loop_budget=2),
+        composer: Composer | None = None,
         return_sampling_results: bool = False,
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -537,6 +558,7 @@ class MelleaSession:
             prefix: A prefix string or ContentBlock to use when generating the instruction.
             output_prefix: A string or ContentBlock that defines a prefix for the output generation. Usually you do not need this.
             strategy: A SamplingStrategy that describes the strategy for validating and repairing/retrying for the instruct-validate-repair pattern. None means that no particular sampling strategy is used.
+            composer: Optional ``Composer`` for constructing and updating steering policies.
             return_sampling_results: attach the (successful and failed) sampling attempts to the results.
             format: If set, the BaseModel to use for constrained decoding.
             model_options: Additional model options, which will upsert into the model/backend's defaults.
@@ -547,6 +569,7 @@ class MelleaSession:
             A ``ModelOutputThunk`` if ``return_sampling_results`` is ``False``,
             else a ``SamplingResult``.
         """
+        effective_composer = composer if composer is not None else self.composer
         r = mfuncs.instruct(
             description,
             context=self.ctx,
@@ -559,6 +582,7 @@ class MelleaSession:
             prefix=prefix,
             output_prefix=output_prefix,
             strategy=strategy,
+            composer=effective_composer,
             return_sampling_results=return_sampling_results,  # type: ignore
             format=format,
             model_options=model_options,
@@ -720,6 +744,7 @@ class MelleaSession:
         *,
         requirements: list[Requirement] | None = None,
         strategy: None = None,
+        composer: Composer | None = None,
         return_sampling_results: Literal[False] = False,
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -734,6 +759,7 @@ class MelleaSession:
         *,
         requirements: list[Requirement] | None = None,
         strategy: SamplingStrategy,
+        composer: Composer | None = None,
         return_sampling_results: Literal[False] = False,
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -748,6 +774,7 @@ class MelleaSession:
         *,
         requirements: list[Requirement] | None = None,
         strategy: None = None,
+        composer: Composer | None = None,
         return_sampling_results: Literal[False] = False,
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -762,6 +789,7 @@ class MelleaSession:
         *,
         requirements: list[Requirement] | None = None,
         strategy: SamplingStrategy | None = RejectionSamplingStrategy(loop_budget=2),
+        composer: Composer | None = None,
         return_sampling_results: Literal[True],
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -775,6 +803,7 @@ class MelleaSession:
         *,
         requirements: list[Requirement] | None = None,
         strategy: SamplingStrategy | None = RejectionSamplingStrategy(loop_budget=2),
+        composer: Composer | None = None,
         return_sampling_results: bool = False,
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -787,6 +816,7 @@ class MelleaSession:
             action: the Component from which to generate.
             requirements: used as additional requirements when a sampling strategy is provided
             strategy: a SamplingStrategy that describes the strategy for validating and repairing/retrying for the instruct-validate-repair pattern. None means that no particular sampling strategy is used.
+            composer: Optional ``Composer`` for constructing and updating steering policies.
             return_sampling_results: attach the (successful and failed) sampling attempts to the results.
             format: if set, the BaseModel to use for constrained decoding.
             model_options: additional model options, which will upsert into the model/backend's defaults.
@@ -797,12 +827,14 @@ class MelleaSession:
             A ModelOutputThunk if `return_sampling_results` is `False`, else returns a `SamplingResult`.
             When await_result=False and strategy=None, returns uncomputed ModelOutputThunk that can be streamed.
         """
+        effective_composer = composer if composer is not None else self.composer
         r = await mfuncs.aact(
             action,
             context=self.ctx,
             backend=self.backend,
             requirements=requirements,
             strategy=strategy,
+            composer=effective_composer,
             return_sampling_results=return_sampling_results,
             format=format,
             model_options=model_options,
@@ -831,6 +863,7 @@ class MelleaSession:
         prefix: str | CBlock | None = None,
         output_prefix: str | CBlock | None = None,
         strategy: None = None,
+        composer: Composer | None = None,
         return_sampling_results: Literal[False] = False,
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -851,6 +884,7 @@ class MelleaSession:
         prefix: str | CBlock | None = None,
         output_prefix: str | CBlock | None = None,
         strategy: SamplingStrategy,
+        composer: Composer | None = None,
         return_sampling_results: Literal[False] = False,
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -871,6 +905,7 @@ class MelleaSession:
         prefix: str | CBlock | None = None,
         output_prefix: str | CBlock | None = None,
         strategy: None = None,
+        composer: Composer | None = None,
         return_sampling_results: Literal[False] = False,
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -891,6 +926,7 @@ class MelleaSession:
         prefix: str | CBlock | None = None,
         output_prefix: str | CBlock | None = None,
         strategy: SamplingStrategy | None = RejectionSamplingStrategy(loop_budget=2),
+        composer: Composer | None = None,
         return_sampling_results: Literal[True],
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -910,6 +946,7 @@ class MelleaSession:
         prefix: str | CBlock | None = None,
         output_prefix: str | CBlock | None = None,
         strategy: SamplingStrategy | None = RejectionSamplingStrategy(loop_budget=2),
+        composer: Composer | None = None,
         return_sampling_results: bool = False,
         format: type[BaseModelSubclass] | None = None,
         model_options: dict | None = None,
@@ -927,6 +964,7 @@ class MelleaSession:
             prefix: A prefix string or ContentBlock to use when generating the instruction.
             output_prefix: A string or ContentBlock that defines a prefix for the output generation. Usually you do not need this.
             strategy: A SamplingStrategy that describes the strategy for validating and repairing/retrying for the instruct-validate-repair pattern. None means that no particular sampling strategy is used.
+            composer: Optional ``Composer`` for constructing and updating steering policies.
             return_sampling_results: attach the (successful and failed) sampling attempts to the results.
             format: If set, the BaseModel to use for constrained decoding.
             model_options: Additional model options, which will upsert into the model/backend's defaults.
@@ -939,6 +977,7 @@ class MelleaSession:
             else returns a ``ModelOutputThunk`` if return_sampling_results`` is ``False``,
             else a ``SamplingResult``.
         """
+        effective_composer = composer if composer is not None else self.composer
         r = await mfuncs.ainstruct(
             description,
             context=self.ctx,
@@ -951,6 +990,7 @@ class MelleaSession:
             prefix=prefix,
             output_prefix=output_prefix,
             strategy=strategy,
+            composer=effective_composer,
             return_sampling_results=return_sampling_results,  # type: ignore
             format=format,
             model_options=model_options,

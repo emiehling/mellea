@@ -29,11 +29,13 @@ from transformers.trainer_utils import set_seed
 
 from ..backends import kv_block_helpers
 from ..core import (
+    BackendCapabilities,
     BaseModelSubclass,
     C,
     CBlock,
     Component,
     Context,
+    ControlCategory,
     FancyLogger,
     GenerateLog,
     GenerateType,
@@ -340,6 +342,16 @@ class LocalHFBackend(FormatterBackend, AdapterMixin):
                 **model_options,
             ).past_key_values
         return dc
+
+    @property
+    def capabilities(self) -> BackendCapabilities:
+        """Returns full capabilities for the HuggingFace backend (all control categories)."""
+        return BackendCapabilities(
+            supported_categories=frozenset(ControlCategory),
+            supports_logits_processors=True,
+            supports_adapter_loading=True,
+            supports_forward_hooks=True,
+        )
 
     async def _generate_from_context(
         self,

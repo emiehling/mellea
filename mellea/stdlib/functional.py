@@ -15,6 +15,7 @@ from ..core import (
     BaseModelSubclass,
     CBlock,
     Component,
+    Composer,
     ComputedModelOutputThunk,
     Context,
     FancyLogger,
@@ -46,6 +47,7 @@ def act(
     *,
     requirements: list[Requirement] | None = None,
     strategy: SamplingStrategy | None = RejectionSamplingStrategy(loop_budget=2),
+    composer: Composer | None = None,
     return_sampling_results: Literal[False] = False,
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
@@ -61,6 +63,7 @@ def act(
     *,
     requirements: list[Requirement] | None = None,
     strategy: SamplingStrategy | None = RejectionSamplingStrategy(loop_budget=2),
+    composer: Composer | None = None,
     return_sampling_results: Literal[True],
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
@@ -75,6 +78,7 @@ def act(
     *,
     requirements: list[Requirement] | None = None,
     strategy: SamplingStrategy | None = RejectionSamplingStrategy(loop_budget=2),
+    composer: Composer | None = None,
     return_sampling_results: bool = False,
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
@@ -88,6 +92,7 @@ def act(
         backend: the backend used to generate the response.
         requirements: used as additional requirements when a sampling strategy is provided.
         strategy: a SamplingStrategy that describes the strategy for validating and repairing/retrying for the instruct-validate-repair pattern. None means that no particular sampling strategy is used.
+        composer: Optional ``Composer`` for constructing and updating steering policies.
         return_sampling_results: attach the (successful and failed) sampling attempts to the results.
         format: if set, the BaseModel to use for constrained decoding.
         model_options: additional model options, which will upsert into the model/backend's defaults.
@@ -104,6 +109,7 @@ def act(
             backend,
             requirements=requirements,
             strategy=strategy,
+            composer=composer,
             return_sampling_results=return_sampling_results,
             format=format,
             model_options=model_options,
@@ -138,6 +144,7 @@ def instruct(
     prefix: str | CBlock | None = None,
     output_prefix: str | CBlock | None = None,
     strategy: SamplingStrategy | None = RejectionSamplingStrategy(loop_budget=2),
+    composer: Composer | None = None,
     return_sampling_results: Literal[False] = False,
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
@@ -159,6 +166,7 @@ def instruct(
     prefix: str | CBlock | None = None,
     output_prefix: str | CBlock | None = None,
     strategy: SamplingStrategy | None = RejectionSamplingStrategy(loop_budget=2),
+    composer: Composer | None = None,
     return_sampling_results: Literal[True],
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
@@ -179,6 +187,7 @@ def instruct(
     prefix: str | CBlock | None = None,
     output_prefix: str | CBlock | None = None,
     strategy: SamplingStrategy | None = RejectionSamplingStrategy(loop_budget=2),
+    composer: Composer | None = None,
     return_sampling_results: bool = False,
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
@@ -197,6 +206,7 @@ def instruct(
         prefix: A prefix string or ContentBlock to use when generating the instruction.
         output_prefix: A string or ContentBlock that defines a prefix for the output generation. Usually you do not need this.
         strategy: A SamplingStrategy that describes the strategy for validating and repairing/retrying for the instruct-validate-repair pattern. None means that no particular sampling strategy is used.
+        composer: Optional ``Composer`` for constructing and updating steering policies.
         return_sampling_results: attach the (successful and failed) sampling attempts to the results.
         format: If set, the BaseModel to use for constrained decoding.
         model_options: Additional model options, which will upsert into the model/backend's defaults.
@@ -231,6 +241,7 @@ def instruct(
         backend=backend,
         requirements=i.requirements,
         strategy=strategy,
+        composer=composer,
         return_sampling_results=return_sampling_results,
         format=format,
         model_options=model_options,
@@ -470,6 +481,7 @@ async def aact(
     *,
     requirements: list[Requirement] | None = None,
     strategy: None = None,
+    composer: Composer | None = None,
     return_sampling_results: Literal[False] = False,
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
@@ -487,6 +499,7 @@ async def aact(
     *,
     requirements: list[Requirement] | None = None,
     strategy: SamplingStrategy,
+    composer: Composer | None = None,
     return_sampling_results: Literal[False] = False,
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
@@ -504,6 +517,7 @@ async def aact(
     *,
     requirements: list[Requirement] | None = None,
     strategy: None = None,
+    composer: Composer | None = None,
     return_sampling_results: Literal[False] = False,
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
@@ -521,6 +535,7 @@ async def aact(
     *,
     requirements: list[Requirement] | None = None,
     strategy: SamplingStrategy | None = RejectionSamplingStrategy(loop_budget=2),
+    composer: Composer | None = None,
     return_sampling_results: Literal[True],
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
@@ -537,6 +552,7 @@ async def aact(
     *,
     requirements: list[Requirement] | None = None,
     strategy: SamplingStrategy | None = RejectionSamplingStrategy(loop_budget=2),
+    composer: Composer | None = None,
     return_sampling_results: bool = False,
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
@@ -552,6 +568,7 @@ async def aact(
         backend: the backend used to generate the response.
         requirements: used as additional requirements when a sampling strategy is provided
         strategy: a SamplingStrategy that describes the strategy for validating and repairing/retrying for the instruct-validate-repair pattern. None means that no particular sampling strategy is used.
+        composer: Optional ``Composer`` for constructing and updating steering policies.
         return_sampling_results: attach the (successful and failed) sampling attempts to the results.
         format: if set, the BaseModel to use for constrained decoding.
         model_options: additional model options, which will upsert into the model/backend's defaults.
@@ -622,6 +639,15 @@ async def aact(
                         "Calling the function with NO strategy BUT requirements. No requirement is being checked!"
                     )
 
+                # Attach steering policy for the strategy-less path
+                if composer is not None and requirements:
+                    from ..core.steering import SteeringPolicy
+
+                    initial_policy = composer.compose(
+                        requirements, backend.capabilities
+                    )
+                    backend.attach(initial_policy)
+
                 result, new_ctx = await backend.generate_from_context(
                     action,
                     ctx=context,
@@ -629,6 +655,9 @@ async def aact(
                     model_options=model_options,
                     tool_calls=tool_calls,
                 )
+
+                if composer is not None:
+                    backend.detach()
                 # Only await and wrap if await_result is True
                 if await_result:
                     await result.avalue()
@@ -651,6 +680,7 @@ async def aact(
                     context=context,
                     backend=backend,
                     requirements=requirements,
+                    composer=composer,
                     validation_ctx=None,
                     format=format,
                     model_options=model_options,
@@ -760,6 +790,7 @@ async def ainstruct(
     prefix: str | CBlock | None = None,
     output_prefix: str | CBlock | None = None,
     strategy: None = None,
+    composer: Composer | None = None,
     return_sampling_results: Literal[False] = False,
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
@@ -782,6 +813,7 @@ async def ainstruct(
     prefix: str | CBlock | None = None,
     output_prefix: str | CBlock | None = None,
     strategy: SamplingStrategy,
+    composer: Composer | None = None,
     return_sampling_results: Literal[False] = False,
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
@@ -804,6 +836,7 @@ async def ainstruct(
     prefix: str | CBlock | None = None,
     output_prefix: str | CBlock | None = None,
     strategy: None = None,
+    composer: Composer | None = None,
     return_sampling_results: Literal[False] = False,
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
@@ -826,6 +859,7 @@ async def ainstruct(
     prefix: str | CBlock | None = None,
     output_prefix: str | CBlock | None = None,
     strategy: SamplingStrategy | None = RejectionSamplingStrategy(loop_budget=2),
+    composer: Composer | None = None,
     return_sampling_results: Literal[True],
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
@@ -847,6 +881,7 @@ async def ainstruct(
     prefix: str | CBlock | None = None,
     output_prefix: str | CBlock | None = None,
     strategy: SamplingStrategy | None = RejectionSamplingStrategy(loop_budget=2),
+    composer: Composer | None = None,
     return_sampling_results: bool = False,
     format: type[BaseModelSubclass] | None = None,
     model_options: dict | None = None,
@@ -866,6 +901,7 @@ async def ainstruct(
         prefix: A prefix string or ContentBlock to use when generating the instruction.
         output_prefix: A string or ContentBlock that defines a prefix for the output generation. Usually you do not need this.
         strategy: A SamplingStrategy that describes the strategy for validating and repairing/retrying for the instruct-validate-repair pattern. None means that no particular sampling strategy is used.
+        composer: Optional ``Composer`` for constructing and updating steering policies.
         return_sampling_results: attach the (successful and failed) sampling attempts to the results.
         format: If set, the BaseModel to use for constrained decoding.
         model_options: Additional model options, which will upsert into the model/backend's defaults.
@@ -900,6 +936,7 @@ async def ainstruct(
         backend=backend,
         requirements=i.requirements,
         strategy=strategy,
+        composer=composer,
         return_sampling_results=return_sampling_results,
         format=format,
         model_options=model_options,
