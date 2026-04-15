@@ -5,6 +5,8 @@ that preserves unsteered behavior), ``PerRequirementComposer`` (simple per-requi
 artifact lookup), and ``CompositeComposer`` (analyzes the full requirement set together).
 """
 
-from .composers import CompositeComposer, NoOpComposer, PerRequirementComposer
+from .composite import CompositeComposer
+from .noop import NoOpComposer
+from .per_requirement import PerRequirementComposer
 
 __all__ = ["CompositeComposer", "NoOpComposer", "PerRequirementComposer"]

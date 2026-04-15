@@ -13,7 +13,7 @@ from mellea.core.steering import (
     InputControlHandler,
     SteeringPolicy,
 )
-from mellea.stdlib.steering.composers import NoOpComposer
+from mellea.stdlib.steering import NoOpComposer
 from mellea.steering.controls import input_control
 
 

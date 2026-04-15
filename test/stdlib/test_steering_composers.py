@@ -7,7 +7,7 @@ from mellea.core.steering import (
     ControlCategory,
     SteeringPolicy,
 )
-from mellea.stdlib.steering.composers import (
+from mellea.stdlib.steering import (
     CompositeComposer,
     NoOpComposer,
     PerRequirementComposer,
