@@ -345,11 +345,10 @@ class Backend(abc.ABC):
         )
 
     def _resolve_artifact(self, control: Control) -> Any:
-        """Resolve an artifact reference to an actual object.
+        """Resolve an artifact reference to a loaded object.
 
-        The default implementation delegates to the steering artifacts library's
-        default registry. Subclasses may override to use custom registries or
-        loading strategies.
+        Delegates to the default ``ArtifactLibrary``. Subclasses may override
+        to use custom libraries or loading strategies.
 
         Args:
             control: The control whose ``artifact_ref`` should be resolved.
@@ -358,11 +357,16 @@ class Backend(abc.ABC):
             The loaded artifact object.
 
         Raises:
-            KeyError: If the artifact reference cannot be found in the registry.
+            KeyError: If no matching artifact is found in the library.
+            ValueError: If the library has no store configured for this
+                control's category.
         """
-        from ..steering.artifacts import get_default_registry
+        from ..steering.library import get_default_library
 
-        return get_default_registry().resolve(control.artifact_ref)
+        artifact, _default_params = get_default_library().get(
+            control.category, name=control.artifact_ref
+        )
+        return artifact
 
 
 def generate_walk(c: CBlock | Component | ModelOutputThunk) -> list[ModelOutputThunk]:

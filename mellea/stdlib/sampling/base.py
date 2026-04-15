@@ -224,7 +224,7 @@ class BaseSamplingStrategy(SamplingStrategy):
             # strategy doesn't have to re-implement it.
             result.parsed_repr = action.parse(result)
 
-            # Detach steering policy before validation (DR#1: validation is unsteered).
+            # Detach steering policy before validation (validation is unsteered).
             if composer is not None:
                 backend.detach()
 

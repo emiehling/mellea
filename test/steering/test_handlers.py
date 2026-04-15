@@ -2,15 +2,14 @@
 
 from mellea.core.base import CBlock
 from mellea.core.steering import Control, ControlCategory, get_global_input_handler
+from mellea.stdlib.components.chat import Message
+from mellea.stdlib.components.instruction import Instruction
+from mellea.stdlib.context import ChatContext
 from mellea.steering.handlers import (
     ContextPrefixHandler,
     InstructionRewriteHandler,
     SystemPromptInjectionHandler,
 )
-from mellea.stdlib.components.chat import Message
-from mellea.stdlib.components.instruction import Instruction
-from mellea.stdlib.context import ChatContext
-
 
 # --- SystemPromptInjectionHandler ---
 

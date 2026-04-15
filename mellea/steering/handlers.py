@@ -7,6 +7,7 @@ module load time via ``register_global_input_handler``.
 
 from __future__ import annotations
 
+import random
 from copy import deepcopy
 from typing import Any
 
@@ -121,7 +122,62 @@ class ContextPrefixHandler(InputControlHandler):
         return action, context.add(msg)
 
 
+class ICLExampleSelectorHandler(InputControlHandler):
+    """Selects in-context learning examples from an artifact example pool.
+
+    The artifact should be a list of example strings (as loaded from a
+    ``PromptStore`` example pool). Selects ``count`` examples using the
+    specified ``strategy`` and injects them into the context as messages.
+
+    Expects ``control.params`` to optionally contain:
+
+    - ``count`` (int): Number of examples to select. Defaults to ``3``.
+    - ``strategy`` (str): Selection strategy — ``"first"`` (default) takes
+      the first N examples, ``"random"`` samples uniformly.
+    - ``role`` (str): Message role for injected examples. Defaults to ``"user"``.
+    """
+
+    def apply(
+        self,
+        control: Control,
+        action: Component | CBlock,
+        context: Context,
+        artifact: Any | None,
+    ) -> tuple[Component | CBlock, Context]:
+        """Select examples from the pool and add them to context.
+
+        Args:
+            control: The control descriptor.
+            action: The current action (returned unchanged).
+            context: The current generation context.
+            artifact: A list of example strings from the example pool.
+
+        Returns:
+            The unchanged action and a new context with examples prepended.
+        """
+        if artifact is None:
+            return action, context
+
+        pool: list[str] = artifact
+        count = control.params.get("count", 3)
+        strategy = control.params.get("strategy", "first")
+        role = control.params.get("role", "user")
+
+        count = min(count, len(pool))
+
+        if strategy == "random":
+            selected = random.sample(pool, count)
+        else:
+            selected = pool[:count]
+
+        new_context = context
+        for example in selected:
+            new_context = new_context.add(Message(role=role, content=example))
+        return action, new_context
+
+
 # Register built-in handlers globally at import time.
 register_global_input_handler("system_prompt_injection", SystemPromptInjectionHandler())
 register_global_input_handler("instruction_rewrite", InstructionRewriteHandler())
 register_global_input_handler("context_prefix", ContextPrefixHandler())
+register_global_input_handler("icl_example_selector", ICLExampleSelectorHandler())

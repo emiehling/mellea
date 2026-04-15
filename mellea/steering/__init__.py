@@ -6,7 +6,6 @@ creating common control types. The ``Composer`` implementations in
 ``mellea.stdlib.steering`` draw from this library during policy composition.
 """
 
-from .artifacts import ArtifactRegistry, SteeringArtifact, get_default_registry
 from .controls import (
     active_output_control,
     input_control,
@@ -16,19 +15,34 @@ from .controls import (
 )
 from .handlers import (
     ContextPrefixHandler,
+    ICLExampleSelectorHandler,
     InstructionRewriteHandler,
     SystemPromptInjectionHandler,
 )
+from .library import (
+    ArtifactInfo,
+    ArtifactLibrary,
+    get_default_library,
+    set_default_library,
+)
+from .stores import AdapterStore, ArtifactStore, ModelStore, PromptStore, VectorStore
 
 __all__ = [
-    "ArtifactRegistry",
+    "AdapterStore",
+    "ArtifactInfo",
+    "ArtifactLibrary",
+    "ArtifactStore",
     "ContextPrefixHandler",
+    "ICLExampleSelectorHandler",
     "InstructionRewriteHandler",
-    "SteeringArtifact",
+    "ModelStore",
+    "PromptStore",
     "SystemPromptInjectionHandler",
+    "VectorStore",
     "active_output_control",
-    "get_default_registry",
+    "get_default_library",
     "input_control",
+    "set_default_library",
     "state_control",
     "static_output_control",
     "structural_control",

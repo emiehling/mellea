@@ -127,7 +127,7 @@ class BackendCapabilities:
     """Describes which steering interventions a backend supports.
 
     Backends expose a ``capabilities`` property returning this descriptor so the
-    ``Composer`` can construct policies containing only runnable controls (DR#5).
+    ``Composer`` can construct policies containing only runnable controls.
 
     Args:
         supported_categories (frozenset[ControlCategory]): Control categories the
