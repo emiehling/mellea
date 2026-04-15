@@ -333,11 +333,12 @@ class LocalHFBackend(FormatterBackend, AdapterMixin):
         """Used to force generation requests to be non-concurrent. Necessary for preventing issues with adapters."""
 
         # Register steering control handlers.
+        from mellea.steering.handlers import StaticOutputControlHandler
+
         from .hf_steering_handlers import (
             ActivationSteeringHandler,
             AdapterControlHandler,
             RewardGuidedDecodingHandler,
-            StaticOutputControlHandler,
         )
 
         self.register_handler("activation_steering", ActivationSteeringHandler())

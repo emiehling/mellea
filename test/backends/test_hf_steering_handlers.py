@@ -11,8 +11,7 @@ from mellea.backends.hf_steering_handlers import (
     ActivationSteeringHandler,
     AdapterControlHandler,
     RewardGuidedDecodingHandler,
-    StaticOutputControlHandler,
-    _get_model_layers,
+    get_model_layers,
 )
 from mellea.core.steering import Control, ControlCategory
 
@@ -112,23 +111,6 @@ def test_adapter_control_deactivate_is_noop():
     handler.deactivate("lora_v1")  # Should not raise.
 
 
-# --- StaticOutputControlHandler ---
-
-
-def test_static_output_merges_params():
-    handler = StaticOutputControlHandler()
-    control = Control(
-        category=ControlCategory.OUTPUT,
-        name="static_output",
-        params={"temperature": 0.3, "top_p": 0.9},
-    )
-    gen_kwargs = {"max_new_tokens": 100}
-    result = handler.apply(control, gen_kwargs, None)
-    assert result["temperature"] == 0.3
-    assert result["top_p"] == 0.9
-    assert result["max_new_tokens"] == 100
-
-
 # --- RewardGuidedDecodingHandler ---
 
 
@@ -164,13 +146,13 @@ def test_reward_guided_appends_to_existing_processors():
     assert len(gen_kwargs["logits_processor"]) == 1
 
 
-# --- _get_model_layers ---
+# --- get_model_layers() ---
 
 
 def test_get_model_layers_llama_style():
     mock_model = MagicMock()
     mock_model.model.layers = ["layer0", "layer1"]
-    assert _get_model_layers(mock_model) == ["layer0", "layer1"]
+    assert get_model_layers(mock_model) == ["layer0", "layer1"]
 
 
 def test_get_model_layers_gpt2_style():
@@ -179,10 +161,10 @@ def test_get_model_layers_gpt2_style():
     mock_model.transformer.h = ["h0", "h1"]
     # Ensure model.model doesn't exist (gpt2 style).
     assert not hasattr(mock_model, "model")
-    assert _get_model_layers(mock_model) == ["h0", "h1"]
+    assert get_model_layers(mock_model) == ["h0", "h1"]
 
 
 def test_get_model_layers_unknown_raises():
     mock_model = MagicMock(spec=[])
     with pytest.raises(AttributeError, match="Cannot resolve transformer layers"):
-        _get_model_layers(mock_model)
+        get_model_layers(mock_model)

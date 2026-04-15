@@ -162,9 +162,9 @@ class WatsonxAIBackend(FormatterBackend):
         }
 
         # Register steering control handlers.
-        from .api_steering_handlers import APIStaticOutputControlHandler
+        from mellea.steering.handlers import StaticOutputControlHandler
 
-        self.register_handler("static_output", APIStaticOutputControlHandler())
+        self.register_handler("static_output", StaticOutputControlHandler())
 
     @property
     def _model(self) -> ModelInference:

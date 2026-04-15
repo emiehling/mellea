@@ -11,9 +11,9 @@ import random
 from copy import deepcopy
 from typing import Any
 
-from ..core.base import CBlock, Component, Context
-from ..core.steering import Control, InputControlHandler, register_global_input_handler
-from ..stdlib.components.chat import Message
+from ...core.base import CBlock, Component, Context
+from ...core.steering import Control, InputControlHandler, register_global_input_handler
+from ...stdlib.components.chat import Message
 
 
 class SystemPromptInjectionHandler(InputControlHandler):
@@ -77,7 +77,7 @@ class InstructionRewriteHandler(InputControlHandler):
         Returns:
             A ``(action, context)`` tuple with the potentially rewritten action.
         """
-        from ..stdlib.components.instruction import Instruction
+        from ...stdlib.components.instruction import Instruction
 
         if isinstance(action, Instruction):
             template = control.params["template"]

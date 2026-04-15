@@ -17,6 +17,7 @@ from .handlers import (
     ContextPrefixHandler,
     ICLExampleSelectorHandler,
     InstructionRewriteHandler,
+    StaticOutputControlHandler,
     SystemPromptInjectionHandler,
 )
 from .library import (
@@ -37,6 +38,7 @@ __all__ = [
     "InstructionRewriteHandler",
     "ModelStore",
     "PromptStore",
+    "StaticOutputControlHandler",
     "SystemPromptInjectionHandler",
     "VectorStore",
     "active_output_control",

@@ -122,9 +122,9 @@ class OllamaModelBackend(FormatterBackend):
         }
 
         # Register steering control handlers.
-        from .api_steering_handlers import APIStaticOutputControlHandler
+        from mellea.steering.handlers import StaticOutputControlHandler
 
-        self.register_handler("static_output", APIStaticOutputControlHandler())
+        self.register_handler("static_output", StaticOutputControlHandler())
 
     def _get_ollama_model_id(self) -> str:
         """Gets the ollama model id from the model_id that was provided in the constructor. Raises AssertionError is the ModelIdentifier does not provide an ollama_name."""
