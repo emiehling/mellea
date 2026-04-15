@@ -1,10 +1,12 @@
-"""Steering policy and composer abstractions for inference-time model interventions.
+"""Steering policy, composer, and handler abstractions for inference-time model interventions.
 
 Defines the ``ControlCategory`` enum, the ``Control`` and ``SteeringPolicy`` immutable
 data types that flow through the steered generation pipeline, the ``BackendCapabilities``
-descriptor, and the ``Composer`` abstract base class for constructing and updating
-steering policies. Start here when building a new composer or extending a backend
-with steering support.
+descriptor, the ``Composer`` abstract base class for constructing and updating
+steering policies, category-specific handler ABCs for executing controls, and the
+``ResolvedControl`` type that pairs a control with its handler and loaded artifact.
+Start here when building a new composer, handler, or extending a backend with steering
+support.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from .base import CBlock, Component, Context
     from .requirement import Requirement, ValidationResult
 
 
@@ -201,3 +204,217 @@ class Composer(abc.ABC):
             An updated ``SteeringPolicy`` for the next generation attempt.
         """
         ...
+
+
+# ---------------------------------------------------------------------------
+# Handler ABCs — category-specific interpreters for Controls
+# ---------------------------------------------------------------------------
+
+
+class InputControlHandler(abc.ABC):
+    """Transforms the action and/or context before the formatter runs.
+
+    Input controls are the most portable category — they operate on
+    ``Component`` and ``CBlock`` objects, not model internals, so they work
+    on every backend. Handlers are stateless and may be shared across calls.
+    """
+
+    @abc.abstractmethod
+    def apply(
+        self,
+        control: Control,
+        action: Component | CBlock,
+        context: Context,
+        artifact: Any | None,
+    ) -> tuple[Component | CBlock, Context]:
+        """Apply an input control to the action and context.
+
+        Args:
+            control: The control descriptor with params.
+            action: The current action component or content block.
+            context: The current generation context.
+            artifact: The resolved artifact, or ``None`` if the control
+                has no ``artifact_ref``.
+
+        Returns:
+            A ``(action, context)`` tuple, potentially modified.
+        """
+        ...
+
+
+class StructuralControlHandler(abc.ABC):
+    """Manages model structure modifications (adapters, merges) with scoped lifecycle.
+
+    Structural controls modify the model's weight structure — loading LoRA adapters,
+    blending adapter weights, etc. They must live inside the backend's generation
+    lock scope because adapter state is global to the model instance.
+    """
+
+    @abc.abstractmethod
+    def activate(self, control: Control, model: Any, artifact: Any | None) -> Any:
+        """Apply structural modifications to the model.
+
+        Called inside the generation lock, before ``model.generate()``.
+
+        Args:
+            control: The control descriptor with params.
+            model: The model object to modify (e.g., a HuggingFace ``PreTrainedModel``).
+            artifact: The resolved artifact (e.g., an adapter path or weight tensor),
+                or ``None``.
+
+        Returns:
+            An opaque handle passed to ``deactivate()`` to reverse the modifications.
+        """
+        ...
+
+    @abc.abstractmethod
+    def deactivate(self, handle: Any) -> None:
+        """Reverse the structural modifications applied by ``activate()``.
+
+        Called inside the generation lock, after ``model.generate()`` completes
+        (including on error, via ``finally``).
+
+        Args:
+            handle: The opaque handle returned by ``activate()``.
+        """
+        ...
+
+
+class StateControlHandler(abc.ABC):
+    """Manages forward hooks on model internals with scoped lifecycle.
+
+    State controls modify the model's runtime behavior during the forward pass —
+    activation steering, attention head masking, etc. They register hooks before
+    ``model.generate()`` and remove them after. Like structural controls, they
+    must live inside the generation lock scope.
+    """
+
+    @abc.abstractmethod
+    def activate(self, control: Control, model: Any, artifact: Any | None) -> Any:
+        """Register forward hooks on the model.
+
+        Called inside the generation lock, before ``model.generate()``.
+
+        Args:
+            control: The control descriptor with params (e.g., layer indices,
+                scaling coefficients).
+            model: The model object to hook (e.g., a HuggingFace ``PreTrainedModel``).
+            artifact: The resolved artifact (e.g., a steering vector tensor),
+                or ``None``.
+
+        Returns:
+            An opaque handle (typically a list of hook handles) passed to
+            ``deactivate()`` for cleanup.
+        """
+        ...
+
+    @abc.abstractmethod
+    def deactivate(self, handle: Any) -> None:
+        """Remove forward hooks registered by ``activate()``.
+
+        Called inside the generation lock, after ``model.generate()`` completes
+        (including on error, via ``finally``). Must be called even if generation
+        raises — leaked hooks silently corrupt subsequent generations.
+
+        Args:
+            handle: The opaque handle returned by ``activate()``.
+        """
+        ...
+
+
+class OutputControlHandler(abc.ABC):
+    """Modifies the generation/decoding process.
+
+    Output controls come in two flavors:
+
+    - **Static**: Simple parameter overrides (temperature, top_p, logit_bias)
+      merged into generation kwargs.
+    - **Active**: Callable objects (logits processors, stopping criteria, reward
+      models) passed to ``model.generate()`` via its processor/criteria args.
+
+    Both flavors are handled through the same ``apply()`` method — the handler
+    is responsible for adding to the appropriate kwargs key.
+    """
+
+    @abc.abstractmethod
+    def apply(
+        self, control: Control, gen_kwargs: dict[str, Any], artifact: Any | None
+    ) -> dict[str, Any]:
+        """Merge control parameters into generation kwargs.
+
+        Args:
+            control: The control descriptor with params.
+            gen_kwargs: The current generation keyword arguments dict. The handler
+                should return a modified copy or mutate and return the same dict.
+            artifact: The resolved artifact (e.g., a reward model for guided
+                decoding), or ``None``.
+
+        Returns:
+            The updated generation kwargs dict.
+        """
+        ...
+
+
+ControlHandler = (
+    InputControlHandler
+    | StructuralControlHandler
+    | StateControlHandler
+    | OutputControlHandler
+)
+"""Union of all handler types."""
+
+
+@dataclass(frozen=True)
+class ResolvedControl:
+    """A control paired with its handler and resolved artifact.
+
+    Created during ``backend.attach()`` and cached for the lifetime of the
+    attached policy. The backend's generation pipeline works exclusively with
+    resolved controls — never raw ``Control`` descriptors.
+
+    Args:
+        control (Control): The original control descriptor.
+        handler (ControlHandler): The handler that knows how to execute this control.
+        artifact (Any | None): The resolved artifact object (e.g., a steering vector
+            tensor, a reward model instance, an adapter weight path). ``None`` for
+            controls that don't reference external artifacts.
+    """
+
+    control: Control
+    handler: ControlHandler
+    artifact: Any | None = None
+
+
+# ---------------------------------------------------------------------------
+# Global input handler registry — backend-agnostic fallback
+# ---------------------------------------------------------------------------
+
+_global_input_handlers: dict[str, InputControlHandler] = {}
+
+
+def register_global_input_handler(name: str, handler: InputControlHandler) -> None:
+    """Register a backend-agnostic input control handler.
+
+    Global handlers serve as fallbacks — if a backend does not have a handler
+    registered for a given input control name, the global registry is checked.
+    Only ``InputControlHandler`` instances may be registered globally, since
+    input controls are the only category that operates on data (action/context)
+    rather than model internals.
+
+    Args:
+        name: The control name this handler responds to.
+        handler: The handler implementation.
+    """
+    _global_input_handlers[name] = handler
+
+
+def get_global_input_handler(name: str) -> InputControlHandler | None:
+    """Look up a globally registered input control handler.
+
+    Args:
+        name: The control name to look up.
+
+    Returns:
+        The handler, or ``None`` if not registered.
+    """
+    return _global_input_handlers.get(name)

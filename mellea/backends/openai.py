@@ -205,6 +205,11 @@ class OpenAIBackend(FormatterBackend):
         # Call once to create an async_client and populate the cache.
         _ = self._async_client
 
+        # Register steering control handlers.
+        from .api_steering_handlers import APIStaticOutputControlHandler
+
+        self.register_handler("static_output", APIStaticOutputControlHandler())
+
     @property
     def _async_client(self) -> openai.AsyncOpenAI:
         """OpenAI's client usually handles changing event loops but explicitly handle it here for edge cases."""
@@ -448,6 +453,11 @@ class OpenAIBackend(FormatterBackend):
         model_opts = self._simplify_and_merge(
             model_options, is_chat_context=ctx.is_chat_context
         )
+
+        # === Steering: apply input controls ===
+        for rc in self.resolved_controls_for_stage(ControlCategory.INPUT):
+            action, ctx = rc.handler.apply(rc.control, action, ctx, rc.artifact)
+
         linearized_context = ctx.view_for_generation()
         assert linearized_context is not None, (
             "Cannot generate from a non-linear context in a FormatterBackend."
@@ -537,6 +547,10 @@ class OpenAIBackend(FormatterBackend):
         # Request usage information in streaming responses
         if model_opts.get(ModelOption.STREAM, False):
             extra_params["stream_options"] = {"include_usage": True}
+
+        # === Steering: apply output controls ===
+        for rc in self.resolved_controls_for_stage(ControlCategory.OUTPUT):
+            model_opts = rc.handler.apply(rc.control, model_opts, rc.artifact)
 
         chat_response: Coroutine[
             Any, Any, ChatCompletion | openai.AsyncStream[ChatCompletionChunk]

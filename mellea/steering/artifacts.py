@@ -120,3 +120,18 @@ class ArtifactRegistry:
     def __len__(self) -> int:
         """Return the number of registered artifacts."""
         return len(self._artifacts)
+
+
+_default_registry: ArtifactRegistry | None = None
+
+
+def get_default_registry() -> ArtifactRegistry:
+    """Return the default global artifact registry, creating it on first access.
+
+    Returns:
+        The singleton ``ArtifactRegistry`` instance.
+    """
+    global _default_registry
+    if _default_registry is None:
+        _default_registry = ArtifactRegistry()
+    return _default_registry

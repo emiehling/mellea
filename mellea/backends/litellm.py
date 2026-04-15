@@ -127,6 +127,11 @@ class LiteLLMBackend(FormatterBackend):
 
         self._past_event_loops: set[int] = set()
 
+        # Register steering control handlers.
+        from .api_steering_handlers import APIStaticOutputControlHandler
+
+        self.register_handler("static_output", APIStaticOutputControlHandler())
+
     @property
     def capabilities(self) -> BackendCapabilities:
         """Returns capabilities for the LiteLLM backend (input and output controls only)."""
@@ -297,6 +302,11 @@ class LiteLLMBackend(FormatterBackend):
         await self.do_generate_walk(action)
 
         model_opts = self._simplify_and_merge(model_options)
+
+        # === Steering: apply input controls ===
+        for rc in self.resolved_controls_for_stage(ControlCategory.INPUT):
+            action, ctx = rc.handler.apply(rc.control, action, ctx, rc.artifact)
+
         linearized_context = ctx.view_for_generation()
         assert linearized_context is not None, (
             "Cannot generate from a non-linear context in a FormatterBackend."
@@ -346,6 +356,10 @@ class LiteLLMBackend(FormatterBackend):
         # Append tool call information if applicable.
         tools = self._extract_tools(action, _format, model_opts, tool_calls, ctx)
         formatted_tools = convert_tools_to_json(tools) if len(tools) > 0 else None
+
+        # === Steering: apply output controls ===
+        for rc in self.resolved_controls_for_stage(ControlCategory.OUTPUT):
+            model_opts = rc.handler.apply(rc.control, model_opts, rc.artifact)
 
         model_specific_options = self._make_backend_specific_and_remove(model_opts)
 

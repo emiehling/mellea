@@ -161,6 +161,11 @@ class WatsonxAIBackend(FormatterBackend):
             ModelOption.MAX_NEW_TOKENS: "max_new_tokens",
         }
 
+        # Register steering control handlers.
+        from .api_steering_handlers import APIStaticOutputControlHandler
+
+        self.register_handler("static_output", APIStaticOutputControlHandler())
+
     @property
     def _model(self) -> ModelInference:
         """Watsonx's client gets tied to a specific event loop. Reset it if needed here."""
@@ -361,6 +366,10 @@ class WatsonxAIBackend(FormatterBackend):
             model_options, is_chat_context=ctx.is_chat_context
         )
 
+        # === Steering: apply input controls ===
+        for rc in self.resolved_controls_for_stage(ControlCategory.INPUT):
+            action, ctx = rc.handler.apply(rc.control, action, ctx, rc.artifact)
+
         linearized_context = ctx.view_for_generation()
         assert linearized_context is not None, (
             "Cannot generate from a non-linear context in a FormatterBackend."
@@ -411,6 +420,10 @@ class WatsonxAIBackend(FormatterBackend):
             FancyLogger.get_logger().info(f"Tools for call: {tools.keys()}")
 
         formatted_tools = convert_tools_to_json(tools)
+
+        # === Steering: apply output controls ===
+        for rc in self.resolved_controls_for_stage(ControlCategory.OUTPUT):
+            model_opts = rc.handler.apply(rc.control, model_opts, rc.artifact)
 
         chat_response: (
             Coroutine[Any, Any, AsyncGenerator] | Coroutine[Any, Any, dict] | None

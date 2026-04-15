@@ -332,6 +332,19 @@ class LocalHFBackend(FormatterBackend, AdapterMixin):
         self._generation_lock = threading.Lock()
         """Used to force generation requests to be non-concurrent. Necessary for preventing issues with adapters."""
 
+        # Register steering control handlers.
+        from .hf_steering_handlers import (
+            ActivationSteeringHandler,
+            AdapterControlHandler,
+            RewardGuidedDecodingHandler,
+            StaticOutputControlHandler,
+        )
+
+        self.register_handler("activation_steering", ActivationSteeringHandler())
+        self.register_handler("adapter", AdapterControlHandler())
+        self.register_handler("static_output", StaticOutputControlHandler())
+        self.register_handler("reward_guided_decoding", RewardGuidedDecodingHandler())
+
     def _make_dc_cache(self, toks, **model_options):
         dc = DynamicCache()
         with torch.no_grad():
@@ -476,6 +489,73 @@ class LocalHFBackend(FormatterBackend, AdapterMixin):
             out = generate_func(*args, **kwargs)
             _assert_correct_adapters(adapter_name, self._model)
             return out
+
+    def _generate_with_steering(
+        self, adapter_name: str, generate_func: Callable, *args, **kwargs
+    ):
+        """Run model.generate() with steering controls applied at each stage.
+
+        Called from a background thread via ``asyncio.to_thread``. When no
+        structural or state controls are attached, delegates directly to
+        ``_generate_with_adapter_lock`` for identical behavior to the unsteered
+        path. Otherwise, acquires the generation lock, applies structural and
+        state controls, runs generation, and cleans up in LIFO order.
+
+        Args:
+            adapter_name: Adapter to load (empty string for no adapter).
+            generate_func: The model's generate callable.
+            *args: Positional args for generate_func.
+            **kwargs: Keyword args for generate_func.
+
+        Returns:
+            The output of ``generate_func()``.
+        """
+        structural_rcs = self.resolved_controls_for_stage(ControlCategory.STRUCTURAL)
+        state_rcs = self.resolved_controls_for_stage(ControlCategory.STATE)
+
+        # Fast path: no scoped controls, delegate to existing adapter lock.
+        if not structural_rcs and not state_rcs:
+            return self._generate_with_adapter_lock(
+                adapter_name, generate_func, *args, **kwargs
+            )
+
+        structural_handles: list[tuple] = []
+        state_handles: list[tuple] = []
+
+        with self._generation_lock:
+            try:
+                # Adapter setup (same as _generate_with_adapter_lock).
+                if adapter_name != "":
+                    self.load_adapter(adapter_name)
+                    self._model.set_adapter(adapter_name)
+                else:
+                    try:
+                        self._model.set_adapter([])
+                    except ValueError as e:
+                        if "No adapter loaded" not in str(e):
+                            raise
+
+                # Apply STRUCTURAL controls.
+                for rc in structural_rcs:
+                    handle = rc.handler.activate(rc.control, self._model, rc.artifact)
+                    structural_handles.append((rc, handle))
+
+                # Apply STATE controls (forward hooks).
+                for rc in state_rcs:
+                    handle = rc.handler.activate(rc.control, self._model, rc.artifact)
+                    state_handles.append((rc, handle))
+
+                _assert_correct_adapters(adapter_name, self._model)
+                out = generate_func(*args, **kwargs)
+                _assert_correct_adapters(adapter_name, self._model)
+                return out
+
+            finally:
+                # Deactivate in LIFO order.
+                for rc, handle in reversed(state_handles):
+                    rc.handler.deactivate(handle)
+                for rc, handle in reversed(structural_handles):
+                    rc.handler.deactivate(handle)
 
     async def _generate_from_intrinsic(
         self, action: Intrinsic, ctx: Context, *, model_options: dict[str, Any]
@@ -909,6 +989,10 @@ class LocalHFBackend(FormatterBackend, AdapterMixin):
         # If the Context is a ChatHistory then we will pretty-print each content as a message and then use apply_chat_template.
         # Otherwise, we will linearize the context and treat it as a raw input.
         if ctx.is_chat_context:
+            # === Steering: apply input controls ===
+            for rc in self.resolved_controls_for_stage(ControlCategory.INPUT):
+                action, ctx = rc.handler.apply(rc.control, action, ctx, rc.artifact)
+
             system_prompt = model_options.get(ModelOption.SYSTEM_PROMPT, None)
             ctx_as_chat = to_chat(action, ctx, self.formatter, system_prompt)
 
@@ -980,8 +1064,14 @@ class LocalHFBackend(FormatterBackend, AdapterMixin):
             # Filter out chat template-only options before passing to generate()
             generate_options = self._filter_chat_template_only_options(model_options)
 
+            # === Steering: apply output controls ===
+            for rc in self.resolved_controls_for_stage(ControlCategory.OUTPUT):
+                generate_options = rc.handler.apply(
+                    rc.control, generate_options, rc.artifact
+                )
+
             chat_response = asyncio.to_thread(
-                self._generate_with_adapter_lock,
+                self._generate_with_steering,
                 "",  # Empty for no adapters.
                 self._model.generate,  # type: ignore
                 # Passed as args/kwargs to generate.

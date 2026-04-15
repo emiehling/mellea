@@ -121,6 +121,11 @@ class OllamaModelBackend(FormatterBackend):
             ModelOption.SEED: "seed",
         }
 
+        # Register steering control handlers.
+        from .api_steering_handlers import APIStaticOutputControlHandler
+
+        self.register_handler("static_output", APIStaticOutputControlHandler())
+
     def _get_ollama_model_id(self) -> str:
         """Gets the ollama model id from the model_id that was provided in the constructor. Raises AssertionError is the ModelIdentifier does not provide an ollama_name."""
         ollama_model_id = (
@@ -354,6 +359,10 @@ class OllamaModelBackend(FormatterBackend):
 
         model_opts = self._simplify_and_merge(model_options)
 
+        # === Steering: apply input controls ===
+        for rc in self.resolved_controls_for_stage(ControlCategory.INPUT):
+            action, ctx = rc.handler.apply(rc.control, action, ctx, rc.artifact)
+
         linearized_context = ctx.view_for_generation()
         assert linearized_context is not None, (
             "Cannot generate from a non-linear context in a FormatterBackend."
@@ -398,6 +407,10 @@ class OllamaModelBackend(FormatterBackend):
                 # they overwrite conflicting names.
                 add_tools_from_context_actions(tools, [action])
             FancyLogger.get_logger().info(f"Tools for call: {tools.keys()}")
+
+        # === Steering: apply output controls ===
+        for rc in self.resolved_controls_for_stage(ControlCategory.OUTPUT):
+            model_opts = rc.handler.apply(rc.control, model_opts, rc.artifact)
 
         # Generate a chat response from ollama, using the chat messages. Can be either type since stream is passed as a model option.
         chat_response: Coroutine[

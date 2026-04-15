@@ -10,6 +10,7 @@ from mellea.core.steering import (
     BackendCapabilities,
     Composer,
     ControlCategory,
+    InputControlHandler,
     SteeringPolicy,
 )
 from mellea.stdlib.steering.composers import NoOpComposer
@@ -75,11 +76,19 @@ def test_sampling_result_with_steering_policy():
 # --- Backend attach/detach ---
 
 
+class _NoOpInputHandler(InputControlHandler):
+    """Minimal input handler for testing attach/detach."""
+
+    def apply(self, control, action, context, artifact):
+        return action, context
+
+
 def test_backend_attach_detach():
     """Test attach/detach on DummyBackend."""
     from mellea.backends.dummy import DummyBackend
 
     backend = DummyBackend(responses=["hello"])
+    backend.register_handler("test", _NoOpInputHandler())
     policy = SteeringPolicy(controls=(input_control("test"),))
 
     # Initially empty

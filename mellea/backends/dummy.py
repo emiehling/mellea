@@ -33,6 +33,7 @@ class DummyBackend(Backend):
 
     def __init__(self, responses: list[str] | None):
         """Initialize the dummy backend with an optional list of predetermined responses."""
+        super().__init__()
         self.responses = responses
         self.idx = 0
 
@@ -108,8 +109,6 @@ class DummyBackend(Backend):
         """
         results = []
         for _ in actions:
-            mot, _ = await self._generate_from_context(
-                actions[0], ctx, format=format
-            )
+            mot, _ = await self._generate_from_context(actions[0], ctx, format=format)
             results.append(mot)
         return results

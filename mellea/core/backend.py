@@ -13,7 +13,7 @@ import functools
 import itertools
 import time
 from collections.abc import Sequence
-from typing import final, overload
+from typing import Any, final, overload
 
 import pydantic
 import typing_extensions
@@ -21,7 +21,15 @@ import typing_extensions
 from ..plugins.manager import has_plugins, invoke_hook
 from ..plugins.types import HookType
 from .base import C, CBlock, Component, Context, ModelOutputThunk
-from .steering import BackendCapabilities, SteeringPolicy
+from .steering import (
+    BackendCapabilities,
+    Control,
+    ControlCategory,
+    ControlHandler,
+    ResolvedControl,
+    SteeringPolicy,
+    get_global_input_handler,
+)
 from .utils import FancyLogger
 
 # Necessary to define a type variable that has a default value.
@@ -48,6 +56,12 @@ class Backend(abc.ABC):
     generation). The ``do_generate_walk`` / ``do_generate_walks`` helpers can be
     used to pre-compute any unresolved ``ModelOutputThunk`` leaves before rendering.
     """
+
+    def __init__(self) -> None:
+        """Initialize base backend state for steering support."""
+        self._handler_registry: dict[str, ControlHandler] = {}
+        self._steering_policy: SteeringPolicy = SteeringPolicy.empty()
+        self._resolved_controls: tuple[ResolvedControl, ...] = ()
 
     @final
     async def generate_from_context(
@@ -219,34 +233,136 @@ class Backend(abc.ABC):
         """
         ...
 
-    def attach(self, policy: SteeringPolicy) -> None:
-        """Attach a steering policy to influence subsequent generation calls.
+    def register_handler(self, control_name: str, handler: ControlHandler) -> None:
+        """Register a handler for a named control type on this backend.
 
-        The policy is stored on the backend instance and applied during the next
-        ``generate_from_context()`` call. Subclasses may override to perform
-        backend-specific attachment logic (e.g., resolving artifact references,
-        loading adapters).
+        Args:
+            control_name: The control name this handler responds to (must match
+                ``Control.name`` values produced by the ``Composer``).
+            handler: The handler implementation.
+        """
+        self._handler_registry[control_name] = handler
+
+    def attach(self, policy: SteeringPolicy) -> None:
+        """Resolve and attach a steering policy for subsequent generation calls.
+
+        Resolves each control in the policy to a ``ResolvedControl`` by looking
+        up its handler (backend registry first, global input fallback second) and
+        resolving its artifact reference via ``_resolve_artifact()``. Resolved
+        controls are cached for the lifetime of this attachment.
 
         Args:
             policy: The steering policy to attach.
+
+        Raises:
+            ValueError: If any control in the policy has no registered handler.
         """
-        self._steering_policy: SteeringPolicy = policy
+        self._steering_policy = policy
+
+        if not policy:
+            self._resolved_controls = ()
+            return
+
+        resolved: list[ResolvedControl] = []
+        for control in policy.controls:
+            handler = self._resolve_handler(control)
+            artifact = (
+                self._resolve_artifact(control)
+                if control.artifact_ref is not None
+                else None
+            )
+            resolved.append(
+                ResolvedControl(control=control, handler=handler, artifact=artifact)
+            )
+        self._resolved_controls = tuple(resolved)
 
     def detach(self) -> SteeringPolicy | None:
         """Remove and return the currently attached steering policy.
+
+        Also clears the resolved controls cache.
 
         Returns:
             The previously attached ``SteeringPolicy``, or ``None`` if no policy
             was attached.
         """
-        policy = getattr(self, "_steering_policy", None)
+        policy = self._steering_policy
         self._steering_policy = SteeringPolicy.empty()
-        return policy
+        self._resolved_controls = ()
+        return policy if policy else None
 
     @property
     def steering_policy(self) -> SteeringPolicy:
         """The currently attached steering policy, or an empty policy if none is attached."""
-        return getattr(self, "_steering_policy", SteeringPolicy.empty())
+        return self._steering_policy
+
+    def resolved_controls_for_stage(
+        self, category: ControlCategory
+    ) -> tuple[ResolvedControl, ...]:
+        """Return resolved controls filtered by category.
+
+        Args:
+            category: The control category to filter by.
+
+        Returns:
+            Tuple of resolved controls matching the given category.
+        """
+        return tuple(
+            rc for rc in self._resolved_controls if rc.control.category == category
+        )
+
+    def _resolve_handler(self, control: Control) -> ControlHandler:
+        """Look up the handler for a control.
+
+        Resolution order:
+
+        1. Backend-specific registry (``self._handler_registry``).
+        2. Global input handler fallback (for ``ControlCategory.INPUT`` only).
+
+        Args:
+            control: The control to resolve a handler for.
+
+        Returns:
+            The resolved handler.
+
+        Raises:
+            ValueError: If no handler is found in either registry.
+        """
+        handler = self._handler_registry.get(control.name)
+        if handler is not None:
+            return handler
+
+        if control.category == ControlCategory.INPUT:
+            global_handler = get_global_input_handler(control.name)
+            if global_handler is not None:
+                return global_handler
+
+        raise ValueError(
+            f"No handler registered for control '{control.name}' "
+            f"(category: {control.category.value}) on backend "
+            f"'{type(self).__name__}'. Register one via "
+            f"backend.register_handler('{control.name}', handler) or "
+            f"register_global_input_handler('{control.name}', handler)."
+        )
+
+    def _resolve_artifact(self, control: Control) -> Any:
+        """Resolve an artifact reference to an actual object.
+
+        The default implementation delegates to the steering artifacts library's
+        default registry. Subclasses may override to use custom registries or
+        loading strategies.
+
+        Args:
+            control: The control whose ``artifact_ref`` should be resolved.
+
+        Returns:
+            The loaded artifact object.
+
+        Raises:
+            KeyError: If the artifact reference cannot be found in the registry.
+        """
+        from ..steering.artifacts import get_default_registry
+
+        return get_default_registry().resolve(control.artifact_ref)
 
 
 def generate_walk(c: CBlock | Component | ModelOutputThunk) -> list[ModelOutputThunk]:

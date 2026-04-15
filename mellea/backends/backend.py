@@ -44,6 +44,7 @@ class FormatterBackend(Backend, abc.ABC):
         model_options: dict | None = None,
     ):
         """Initialize a formatter-based backend for the given model ID."""
+        super().__init__()
         self.model_id = model_id
         self.model_options = model_options if model_options is not None else {}
         self.formatter: ChatFormatter = formatter
