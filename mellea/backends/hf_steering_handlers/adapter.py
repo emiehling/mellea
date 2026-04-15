@@ -7,7 +7,7 @@ from typing import Any
 from ...core.steering import Control, StructuralControlHandler
 
 
-class AdapterControlHandler(StructuralControlHandler):
+class AdapterHandler(StructuralControlHandler):
     """Loads and activates LoRA/PEFT adapters on a HuggingFace model.
 
     Integrates with Mellea's existing ``load_adapter`` / ``set_adapter``

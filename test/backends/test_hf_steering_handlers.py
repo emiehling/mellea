@@ -3,18 +3,18 @@
 Uses mock models to test handler behavior without requiring GPU resources.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from mellea.backends.hf_steering_handlers import (
     ActivationSteeringHandler,
-    AdapterControlHandler,
-    RewardGuidedDecodingHandler,
+    AdapterHandler,
+    LogitsProcessorHandler,
+    StoppingCriteriaHandler,
     get_model_layers,
 )
 from mellea.core.steering import Control, ControlCategory
-
 
 # --- ActivationSteeringHandler ---
 
@@ -76,11 +76,11 @@ def test_activation_steering_default_all_layers():
     assert len(hooks) == 4
 
 
-# --- AdapterControlHandler ---
+# --- AdapterHandler ---
 
 
-def test_adapter_control_loads_and_sets():
-    handler = AdapterControlHandler()
+def test_adapter_loads_and_sets():
+    handler = AdapterHandler()
     control = Control(
         category=ControlCategory.STRUCTURAL,
         name="my_adapter",
@@ -96,8 +96,8 @@ def test_adapter_control_loads_and_sets():
     mock_model.set_adapter.assert_called_once_with("lora_v1")
 
 
-def test_adapter_control_default_name():
-    handler = AdapterControlHandler()
+def test_adapter_default_name():
+    handler = AdapterHandler()
     control = Control(
         category=ControlCategory.STRUCTURAL, name="fallback_adapter", params={}
     )
@@ -106,44 +106,112 @@ def test_adapter_control_default_name():
     assert handle == "fallback_adapter"
 
 
-def test_adapter_control_deactivate_is_noop():
-    handler = AdapterControlHandler()
+def test_adapter_deactivate_is_noop():
+    handler = AdapterHandler()
     handler.deactivate("lora_v1")  # Should not raise.
 
 
-# --- RewardGuidedDecodingHandler ---
+# --- LogitsProcessorHandler ---
 
 
-def test_reward_guided_adds_logits_processor():
-    torch = pytest.importorskip("torch")
-
-    handler = RewardGuidedDecodingHandler()
-    mock_reward = MagicMock(return_value=torch.zeros(10))
+def test_logits_processor_handler_appends():
+    handler = LogitsProcessorHandler()
+    mock_processor = MagicMock()
     control = Control(
         category=ControlCategory.OUTPUT,
-        name="reward_guided_decoding",
-        params={"temperature": 2.0},
+        name="logits_processor",
+        params={},
     )
-    gen_kwargs = {}
-    result = handler.apply(control, gen_kwargs, mock_reward)
+    gen_kwargs: dict = {}
+    result = handler.apply(control, gen_kwargs, mock_processor)
     assert "logits_processor" in result
     assert len(result["logits_processor"]) == 1
+    assert result["logits_processor"][0] is mock_processor
 
 
-def test_reward_guided_appends_to_existing_processors():
-    torch = pytest.importorskip("torch")
-
-    handler = RewardGuidedDecodingHandler()
-    mock_reward = MagicMock(return_value=torch.zeros(10))
+def test_logits_processor_handler_appends_to_existing():
+    handler = LogitsProcessorHandler()
+    mock_processor = MagicMock()
     control = Control(
-        category=ControlCategory.OUTPUT, name="reward_guided_decoding", params={}
+        category=ControlCategory.OUTPUT, name="logits_processor", params={}
+    )
+    existing_processor = MagicMock()
+    original_list = [existing_processor]
+    gen_kwargs = {"logits_processor": original_list}
+    result = handler.apply(control, gen_kwargs, mock_processor)
+    assert len(result["logits_processor"]) == 2
+    assert result["logits_processor"][0] is existing_processor
+    assert result["logits_processor"][1] is mock_processor
+    # Original list should not be mutated.
+    assert len(original_list) == 1
+
+
+def test_logits_processor_handler_prepend():
+    handler = LogitsProcessorHandler()
+    mock_processor = MagicMock()
+    control = Control(
+        category=ControlCategory.OUTPUT,
+        name="logits_processor",
+        params={"priority": "prepend"},
     )
     existing_processor = MagicMock()
     gen_kwargs = {"logits_processor": [existing_processor]}
-    result = handler.apply(control, gen_kwargs, mock_reward)
+    result = handler.apply(control, gen_kwargs, mock_processor)
     assert len(result["logits_processor"]) == 2
-    # Original list should not be mutated.
-    assert len(gen_kwargs["logits_processor"]) == 1
+    assert result["logits_processor"][0] is mock_processor
+    assert result["logits_processor"][1] is existing_processor
+
+
+def test_logits_processor_handler_requires_artifact():
+    handler = LogitsProcessorHandler()
+    control = Control(
+        category=ControlCategory.OUTPUT, name="logits_processor", params={}
+    )
+    with pytest.raises(AssertionError, match="requires a LogitsProcessor artifact"):
+        handler.apply(control, {}, None)
+
+
+# --- StoppingCriteriaHandler ---
+
+
+def test_stopping_criteria_handler_appends():
+    handler = StoppingCriteriaHandler()
+    mock_criteria = MagicMock()
+    control = Control(
+        category=ControlCategory.OUTPUT,
+        name="stopping_criteria",
+        params={},
+    )
+    gen_kwargs: dict = {}
+    result = handler.apply(control, gen_kwargs, mock_criteria)
+    assert "stopping_criteria" in result
+    assert len(result["stopping_criteria"]) == 1
+    assert result["stopping_criteria"][0] is mock_criteria
+
+
+def test_stopping_criteria_handler_prepend():
+    handler = StoppingCriteriaHandler()
+    mock_criteria = MagicMock()
+    control = Control(
+        category=ControlCategory.OUTPUT,
+        name="stopping_criteria",
+        params={"priority": "prepend"},
+    )
+    existing_criteria = MagicMock()
+    gen_kwargs = {"stopping_criteria": [existing_criteria]}
+    result = handler.apply(control, gen_kwargs, mock_criteria)
+    assert len(result["stopping_criteria"]) == 2
+    assert result["stopping_criteria"][0] is mock_criteria
+    assert result["stopping_criteria"][1] is existing_criteria
+
+
+def test_stopping_criteria_handler_requires_artifact():
+    handler = StoppingCriteriaHandler()
+    control = Control(
+        category=ControlCategory.OUTPUT, name="stopping_criteria", params={}
+    )
+    with pytest.raises(AssertionError, match="requires a StoppingCriteria artifact"):
+        handler.apply(control, {}, None)
 
 
 # --- get_model_layers() ---

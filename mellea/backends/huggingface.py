@@ -337,14 +337,16 @@ class LocalHFBackend(FormatterBackend, AdapterMixin):
 
         from .hf_steering_handlers import (
             ActivationSteeringHandler,
-            AdapterControlHandler,
-            RewardGuidedDecodingHandler,
+            AdapterHandler,
+            LogitsProcessorHandler,
+            StoppingCriteriaHandler,
         )
 
         self.register_handler("activation_steering", ActivationSteeringHandler())
-        self.register_handler("adapter", AdapterControlHandler())
+        self.register_handler("adapter", AdapterHandler())
         self.register_handler("static_output", StaticOutputControlHandler())
-        self.register_handler("reward_guided_decoding", RewardGuidedDecodingHandler())
+        self.register_handler("logits_processor", LogitsProcessorHandler())
+        self.register_handler("stopping_criteria", StoppingCriteriaHandler())
 
     def _make_dc_cache(self, toks, **model_options):
         dc = DynamicCache()
