@@ -190,11 +190,11 @@ def get_default_library() -> ArtifactLibrary:
     return _default_library
 
 
-def set_default_library(library: ArtifactLibrary) -> None:
-    """Set the default global artifact library.
+def set_default_library(library: ArtifactLibrary | None) -> None:
+    """Set (or clear) the default global artifact library.
 
     Args:
-        library: The library to use as the global default.
+        library: The library to use as the global default, or ``None`` to clear it.
     """
     global _default_library
     _default_library = library

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from ...core.requirement import Requirement, ValidationResult
 from ...core.steering import BackendCapabilities, Composer, SteeringPolicy
-from ...steering.library import ArtifactLibrary
 from .per_requirement import PerRequirementComposer
 
 
@@ -12,19 +11,15 @@ class CompositeComposer(Composer):
     """Composer that analyzes the full requirement set together.
 
     Placeholder for more sophisticated composition strategies that consider
-    requirement interactions and side-effects. Initially delegates to 
+    requirement interactions and side-effects. Initially delegates to
     ``PerRequirementComposer``.
-    
-    Todo: extended with collaborative-filtering or recommendation-system techniques.
 
-    Args:
-        library (ArtifactLibrary): The artifact library to search for
-            matching interventions.
+    Todo: extended with collaborative-filtering or recommendation-system techniques.
     """
 
-    def __init__(self, library: ArtifactLibrary) -> None:
-        """Initialize CompositeComposer with an artifact library."""
-        self._delegate = PerRequirementComposer(library)
+    def __init__(self) -> None:
+        """Initialize CompositeComposer."""
+        self._delegate = PerRequirementComposer()
 
     def compose(
         self, requirements: list[Requirement], capabilities: BackendCapabilities

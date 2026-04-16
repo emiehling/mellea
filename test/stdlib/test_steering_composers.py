@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from mellea.core.requirement import Requirement, ValidationResult
 from mellea.core.steering import (
     BackendCapabilities,
@@ -16,7 +18,7 @@ from mellea.stdlib.steering import (
     NoOpComposer,
     PerRequirementComposer,
 )
-from mellea.steering.library import ArtifactLibrary
+from mellea.steering.library import ArtifactLibrary, set_default_library
 from mellea.steering.stores.base import ArtifactStore
 
 # --- Mock store for test artifacts ---
@@ -84,6 +86,14 @@ def _make_library() -> ArtifactLibrary:
     )
 
 
+@pytest.fixture(autouse=True)
+def _configure_library():
+    """Set up a test library as the default for all tests in this module."""
+    set_default_library(_make_library())
+    yield
+    set_default_library(None)
+
+
 # --- NoOpComposer ---
 
 
@@ -115,8 +125,7 @@ def test_noop_composer_update_returns_unchanged():
 
 
 def test_per_requirement_composer_compose():
-    library = _make_library()
-    composer = PerRequirementComposer(library)
+    composer = PerRequirementComposer()
     reqs = [Requirement("be concise")]
     caps = BackendCapabilities(
         supported_categories=frozenset({ControlCategory.INPUT, ControlCategory.OUTPUT})
@@ -130,8 +139,7 @@ def test_per_requirement_composer_compose():
 
 
 def test_per_requirement_composer_populates_params_from_defaults():
-    library = _make_library()
-    composer = PerRequirementComposer(library)
+    composer = PerRequirementComposer()
     reqs = [Requirement("be honest")]
     caps = BackendCapabilities(
         supported_categories=frozenset({ControlCategory.INPUT, ControlCategory.STATE})
@@ -148,8 +156,7 @@ def test_per_requirement_composer_populates_params_from_defaults():
 
 
 def test_per_requirement_composer_filters_by_capabilities():
-    library = _make_library()
-    composer = PerRequirementComposer(library)
+    composer = PerRequirementComposer()
     reqs = [Requirement("be honest")]
     # Backend only supports INPUT, not STATE
     caps = BackendCapabilities(supported_categories=frozenset({ControlCategory.INPUT}))
@@ -160,8 +167,7 @@ def test_per_requirement_composer_filters_by_capabilities():
 
 
 def test_per_requirement_composer_compose_with_state_support():
-    library = _make_library()
-    composer = PerRequirementComposer(library)
+    composer = PerRequirementComposer()
     reqs = [Requirement("be honest")]
     caps = BackendCapabilities(
         supported_categories=frozenset({ControlCategory.INPUT, ControlCategory.STATE})
@@ -173,8 +179,7 @@ def test_per_requirement_composer_compose_with_state_support():
 
 
 def test_per_requirement_composer_update_adds_new_controls():
-    library = _make_library()
-    composer = PerRequirementComposer(library)
+    composer = PerRequirementComposer()
     caps = BackendCapabilities(supported_categories=frozenset(ControlCategory))
 
     initial_policy = SteeringPolicy.empty()
@@ -188,8 +193,7 @@ def test_per_requirement_composer_update_adds_new_controls():
 
 
 def test_per_requirement_composer_update_no_duplicates():
-    library = _make_library()
-    composer = PerRequirementComposer(library)
+    composer = PerRequirementComposer()
     caps = BackendCapabilities(supported_categories=frozenset(ControlCategory))
 
     # Start with conciseness already in the policy
@@ -210,8 +214,7 @@ def test_per_requirement_composer_update_no_duplicates():
 
 
 def test_per_requirement_composer_update_skips_passing_reqs():
-    library = _make_library()
-    composer = PerRequirementComposer(library)
+    composer = PerRequirementComposer()
     caps = BackendCapabilities(supported_categories=frozenset(ControlCategory))
 
     results = [(Requirement("be concise"), ValidationResult(True))]
@@ -220,8 +223,7 @@ def test_per_requirement_composer_update_skips_passing_reqs():
 
 
 def test_per_requirement_composer_no_description():
-    library = _make_library()
-    composer = PerRequirementComposer(library)
+    composer = PerRequirementComposer()
     caps = BackendCapabilities(supported_categories=frozenset(ControlCategory))
 
     # Requirement with no description should be skipped
@@ -234,8 +236,7 @@ def test_per_requirement_composer_no_description():
 
 
 def test_composite_composer_delegates_to_per_requirement():
-    library = _make_library()
-    composer = CompositeComposer(library)
+    composer = CompositeComposer()
     reqs = [Requirement("be concise")]
     caps = BackendCapabilities(
         supported_categories=frozenset({ControlCategory.INPUT, ControlCategory.OUTPUT})
