@@ -5,14 +5,38 @@ This example is to illustrate that existing interventions can be easily self-con
 """
 
 from mellea import start_session
-from mellea.core.steering import ControlCategory, SteeringPolicy
+from mellea.core.steering import SteeringPolicy
 from mellea.steering import (
     ArtifactLibrary,
     set_default_library,
     input_control,
     static_output_control,
 )
-from mellea.stdlib.steering import FixedComposer
+from mellea.stdlib.steering import FixedComposer, NoOpComposer
+
+# Demo: NoOpComposer doesn't change behavior
+
+MODEL = "ibm-granite/granite-4.0-micro"
+PROMPT = "Explain what a mutex is to a new programmer."
+FIXED_OPTS = {"temperature": 0.0, "max_new_tokens": 200}
+
+# Baseline; no composer
+m_baseline = start_session("hf", MODEL, model_options=FIXED_OPTS)
+baseline_output = m_baseline.instruct(PROMPT)
+
+# Explicit NoOpComposer; 
+m_noop = start_session("hf", MODEL, model_options=FIXED_OPTS, composer=NoOpComposer())
+noop_output = m_noop.instruct(PROMPT)
+
+print("Baseline output:", baseline_output)
+print("NoOp output:    ", noop_output)
+assert str(baseline_output) == str(noop_output), (
+    "NoOpComposer should produce identical output to no composer"
+)
+print("Confirmed: NoOpComposer is equivalent to unsteered generation.\n")
+
+
+## Demo: steering changes behavior
 
 # create artifact library and register controls
 library = ArtifactLibrary()
@@ -27,14 +51,14 @@ steering_policy = SteeringPolicy(controls=(
         },
     ),
     static_output_control(
-        name="static_output", 
-        temperature=0.8, 
-        max_new_tokens=400
+        name="static_output",
+        temperature=0.8,
+        max_new_tokens=50
     ),
 ))
 
 # start session with a fixed composer under the given steering policy
-m = start_session("hf", "ibm-granite/granite-4.0-micro", composer=FixedComposer(steering_policy))
+m = start_session("hf", MODEL, composer=FixedComposer(steering_policy))
 
 # produce steered response
-print(m.instruct("Explain what a mutex is to a new programmer."))
+print(m.instruct(PROMPT))
