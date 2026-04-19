@@ -368,6 +368,90 @@ def test_vector_store_get_and_list(tmp_path):
     assert len(empty) == 0
 
 
+def test_vector_store_param_space_round_trip(tmp_path):
+    """param_space round-trips through zarr attrs with string-key normalization."""
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("zarr")
+    np = pytest.importorskip("numpy")
+    from mellea.steering.stores.vector_store import VectorStore
+
+    hidden_dim = 4
+    vectors = np.zeros((1, 1, 2, hidden_dim), dtype=np.float32)
+    da = xr.DataArray(
+        vectors,
+        dims=["model", "behavior", "layer", "hidden"],
+        coords={"model": ["granite"], "behavior": ["technicality"], "layer": [0, 1]},
+    )
+    # JSON serialization in zarr attrs turns int keys to strings.
+    ds = xr.Dataset(
+        {"vectors": da},
+        attrs={
+            "granite/technicality": {
+                "description": "Technicality vector",
+                "handler": "activation_steering",
+                "default_coefficient": 1.4,
+                "param_space": {
+                    "by_layer": {
+                        "0": {"coefficient": {"min": 0.8, "max": 1.8}},
+                        "1": {"coefficient": {"min": 0.5, "max": 1.0}},
+                    },
+                },
+            }
+        },
+    )
+    store_path = tmp_path / "ps_vectors.zarr"
+    ds.to_zarr(store_path)
+
+    store = VectorStore(store_path)
+
+    # param_space should not leak into default_params
+    _, params = store.get_raw(model="granite", behavior="technicality")
+    assert "param_space" not in params
+    assert params["default_coefficient"] == 1.4
+
+    # search should return param_space with int keys normalized
+    results = store.search("technicality")
+    assert len(results) == 1
+    ps = results[0]["param_space"]
+    assert 0 in ps["by_layer"]
+    assert 1 in ps["by_layer"]
+    assert ps["by_layer"][0]["coefficient"]["max"] == 1.8
+
+    # list_artifacts should also carry param_space
+    all_results = store.list_artifacts()
+    assert all_results[0]["param_space"]["by_layer"][1]["coefficient"]["min"] == 0.5
+
+
+def test_vector_store_param_space_empty_when_absent(tmp_path):
+    """Vectors without param_space in attrs get an empty dict."""
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("zarr")
+    np = pytest.importorskip("numpy")
+    from mellea.steering.stores.vector_store import VectorStore
+
+    vectors = np.zeros((1, 1, 1, 4), dtype=np.float32)
+    da = xr.DataArray(
+        vectors,
+        dims=["model", "behavior", "layer", "hidden"],
+        coords={"model": ["granite"], "behavior": ["honesty"], "layer": [0]},
+    )
+    ds = xr.Dataset(
+        {"vectors": da},
+        attrs={
+            "granite/honesty": {
+                "description": "Honesty vector",
+                "handler": "activation_steering",
+            }
+        },
+    )
+    store_path = tmp_path / "no_ps.zarr"
+    ds.to_zarr(store_path)
+
+    store = VectorStore(store_path)
+    results = store.search("honesty")
+    assert results[0]["param_space"] == {}
+
+
 def test_vector_store_get_not_found(tmp_path):
     """VectorStore raises KeyError for missing vectors."""
     xr = pytest.importorskip("xarray")

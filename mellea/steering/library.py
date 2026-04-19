@@ -27,6 +27,7 @@ class ArtifactInfo:
         handler (str | None): Default handler name for this artifact.
         default_params (dict[str, Any]): Default handler parameters. Keys match
             what the handler reads from ``control.params``.
+        param_space (dict[str, Any]): Advisory operating envelope for artifact.
     """
 
     name: str
@@ -35,6 +36,7 @@ class ArtifactInfo:
     model: str | None
     handler: str | None = None
     default_params: dict[str, Any] = field(default_factory=dict)
+    param_space: dict[str, Any] = field(default_factory=dict)
 
 
 class ArtifactLibrary:
@@ -140,6 +142,7 @@ class ArtifactLibrary:
                         model=raw.get("model"),
                         handler=raw.get("handler"),
                         default_params=raw.get("default_params", {}),
+                        param_space=raw.get("param_space", {}),
                     )
                 )
         return results
@@ -170,6 +173,7 @@ class ArtifactLibrary:
                     model=raw.get("model"),
                     handler=raw.get("handler"),
                     default_params=raw.get("default_params", {}),
+                    param_space=raw.get("param_space", {}),
                 )
             )
         return results

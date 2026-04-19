@@ -34,12 +34,29 @@ def test_artifact_info_creation():
     assert info.default_params["coefficient"] == 1.5
 
 
+def test_artifact_info_with_param_space():
+    ps = {
+        "by_layer": {
+            15: {"coefficient": {"min": 0.8, "max": 1.8, "recommended": 1.4}},
+        },
+    }
+    info = ArtifactInfo(
+        name="test_vec",
+        category=ControlCategory.STATE,
+        description="a test vector",
+        model="granite",
+        param_space=ps,
+    )
+    assert info.param_space["by_layer"][15]["coefficient"]["recommended"] == 1.4
+
+
 def test_artifact_info_defaults():
     info = ArtifactInfo(
         name="x", category=ControlCategory.INPUT, description="", model=None
     )
     assert info.handler is None
     assert info.default_params == {}
+    assert info.param_space == {}
 
 
 def test_artifact_info_frozen():
@@ -95,6 +112,56 @@ class _MockStore(ArtifactStore):
                     "default_params": {
                         k: v for k, v in params.items() if not k.startswith("_")
                     },
+                }
+            )
+        return results
+
+
+class _MockStoreWithParamSpace(ArtifactStore):
+    """Mock store that includes param_space in search/list results."""
+
+    def __init__(self, items: dict[str, tuple[Any, dict[str, Any], dict[str, Any]]]) -> None:
+        self._items = items
+
+    def get_raw(self, **selectors: Any) -> tuple[Any, dict[str, Any]]:
+        name = selectors.get("name")
+        if name not in self._items:
+            raise KeyError(f"not found: {name}")
+        artifact, params, _ = self._items[name]
+        return artifact, {k: v for k, v in params.items() if not k.startswith("_")}
+
+    def search(self, query: str, model: str | None = None) -> list[dict[str, Any]]:
+        results = []
+        for name, (_, params, ps) in self._items.items():
+            desc = params.get("_desc", "")
+            if query.lower() in name.lower() or query.lower() in desc.lower():
+                results.append(
+                    {
+                        "name": name,
+                        "description": desc,
+                        "model": model,
+                        "handler": params.get("_handler"),
+                        "default_params": {
+                            k: v for k, v in params.items() if not k.startswith("_")
+                        },
+                        "param_space": ps,
+                    }
+                )
+        return results
+
+    def list_artifacts(self, **partial_selectors: Any) -> list[dict[str, Any]]:
+        results = []
+        for name, (_, params, ps) in self._items.items():
+            results.append(
+                {
+                    "name": name,
+                    "description": params.get("_desc", ""),
+                    "model": None,
+                    "handler": params.get("_handler"),
+                    "default_params": {
+                        k: v for k, v in params.items() if not k.startswith("_")
+                    },
+                    "param_space": ps,
                 }
             )
         return results
@@ -172,6 +239,40 @@ def test_library_search_returns_handler_and_params():
     assert len(results) == 1
     assert results[0].handler == "act_steer"
     assert results[0].default_params == {"coefficient": 2.0}
+
+
+def test_library_search_threads_param_space():
+    store = _MockStoreWithParamSpace(
+        {
+            "vec": (
+                "v1",
+                {"_desc": "test", "_handler": "act_steer"},
+                {"by_layer": {15: {"coefficient": {"min": 0.8, "max": 1.8}}}},
+            )
+        }
+    )
+    lib = ArtifactLibrary({ControlCategory.STATE: store})
+
+    results = lib.search("test")
+    assert len(results) == 1
+    assert results[0].param_space["by_layer"][15]["coefficient"]["max"] == 1.8
+
+
+def test_library_list_threads_param_space():
+    store = _MockStoreWithParamSpace(
+        {
+            "vec": (
+                "v1",
+                {"_desc": "test"},
+                {"by_layer": {10: {"coefficient": {"min": 0.5, "max": 1.0}}}},
+            )
+        }
+    )
+    lib = ArtifactLibrary({ControlCategory.STATE: store})
+
+    results = lib.list(ControlCategory.STATE)
+    assert len(results) == 1
+    assert results[0].param_space["by_layer"][10]["coefficient"]["min"] == 0.5
 
 
 def test_library_list():

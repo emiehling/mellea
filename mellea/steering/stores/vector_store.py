@@ -15,7 +15,7 @@ except ImportError:
 
 from .base import ArtifactStore
 
-_META_KEYS = ("description", "handler")
+_META_KEYS = ("description", "handler", "param_space")
 
 
 class VectorStore(ArtifactStore):
@@ -101,20 +101,34 @@ class VectorStore(ArtifactStore):
 
         return directions, params
 
+    @staticmethod
+    def _normalize_param_space(raw: dict[str, Any]) -> dict[str, Any]:
+        """Normalize param_space keys that were stringified by JSON round-trip."""
+        by_layer = raw.get("by_layer")
+        if by_layer is None:
+            return raw
+        return {
+            **raw,
+            "by_layer": {int(k): v for k, v in by_layer.items()},
+        }
+
     def _build_info_dict(self, m: str, b: str) -> dict[str, Any]:
         """Build an info dict for a (model, behavior) pair."""
         meta_key = f"{m}/{b}"
         meta = self._ds.attrs.get(meta_key, {})
         if isinstance(meta, dict):
             desc, handler, params = self._split_meta(meta)
+            raw_ps = meta.get("param_space", {})
+            param_space = self._normalize_param_space(raw_ps) if raw_ps else {}
         else:
-            desc, handler, params = "", None, {}
+            desc, handler, params, param_space = "", None, {}, {}
         return {
             "name": f"{m}/{b}",
             "description": desc,
             "model": m,
             "handler": handler,
             "default_params": params,
+            "param_space": param_space,
         }
 
     def search(self, query: str, model: str | None = None) -> list[dict[str, Any]]:
