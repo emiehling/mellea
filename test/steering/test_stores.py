@@ -368,6 +368,48 @@ def test_vector_store_get_and_list(tmp_path):
     assert len(empty) == 0
 
 
+def test_vector_store_get_raw_name_fallback(tmp_path):
+    """get_raw accepts a composite name= selector, splitting on the last /."""
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("zarr")
+    np = pytest.importorskip("numpy")
+    torch = pytest.importorskip("torch")
+    from mellea.steering.stores.vector_store import VectorStore
+
+    hidden_dim = 4
+    vectors = np.ones((1, 1, 2, hidden_dim), dtype=np.float32)
+    da = xr.DataArray(
+        vectors,
+        dims=["model", "behavior", "layer", "hidden"],
+        coords={"model": ["org/model-name"], "behavior": ["honesty"], "layer": [0, 1]},
+    )
+    ds = xr.Dataset(
+        {"vectors": da},
+        attrs={
+            "org/model-name/honesty": {
+                "description": "Test vector",
+                "handler": "activation_steering",
+                "coeff": 1.0,
+            }
+        },
+    )
+    store_path = tmp_path / "name_fallback.zarr"
+    ds.to_zarr(store_path)
+
+    store = VectorStore(store_path)
+
+    # name= fallback splits on last /
+    dirs_by_name, params_by_name = store.get_raw(name="org/model-name/honesty")
+    dirs_explicit, params_explicit = store.get_raw(
+        model="org/model-name", behavior="honesty"
+    )
+
+    assert set(dirs_by_name.keys()) == set(dirs_explicit.keys())
+    for k in dirs_by_name:
+        assert torch.equal(dirs_by_name[k], dirs_explicit[k])
+    assert params_by_name == params_explicit
+
+
 def test_vector_store_param_space_round_trip(tmp_path):
     """param_space round-trips through zarr attrs with string-key normalization."""
     xr = pytest.importorskip("xarray")

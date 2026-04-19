@@ -54,7 +54,9 @@ class VectorStore(ArtifactStore):
         """Load per-layer steering vectors by model and behavior.
 
         Args:
-            **selectors: Must include ``model`` (str) and ``behavior`` (str).
+            **selectors: Must include ``model`` and ``behavior``, or a
+                composite ``name`` in ``"model/behavior"`` format (split on
+                the last ``/`` so model IDs containing ``/`` work correctly).
 
         Returns:
             ``(directions, default_params)`` where directions is a
@@ -74,9 +76,18 @@ class VectorStore(ArtifactStore):
 
         model = selectors.get("model")
         behavior = selectors.get("behavior")
+
+        if model is None and behavior is None:
+            name = selectors.get("name")
+            if name is not None:
+                parts = name.rsplit("/", 1)
+                if len(parts) == 2:
+                    model, behavior = parts
+
         if model is None or behavior is None:
             raise KeyError(
-                "VectorStore.get_raw requires 'model' and 'behavior' selectors"
+                "VectorStore.get_raw requires 'model' and 'behavior' selectors "
+                "(or a 'name' in 'model/behavior' format)"
             )
 
         try:

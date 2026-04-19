@@ -9,7 +9,7 @@ import yaml
 
 from .base import ArtifactStore
 
-_PARAM_KEYS = ("default_count", "default_strategy", "default_role")
+_META_KEYS = ("description", "handler", "_subdir")
 
 
 class PromptStore(ArtifactStore):
@@ -21,6 +21,9 @@ class PromptStore(ArtifactStore):
     - ``example_pools/``: ICL example pool YAML files.
 
     Each YAML file contains the artifact content and default metadata.
+    All keys except ``description``, ``handler``, and internal bookkeeping
+    are passed through as ``default_params``, so handler-specific parameters
+    (e.g. ``system_prompt``, ``template``) flow through automatically.
 
     Args:
         root (str | Path): Path to the prompt artifacts directory.
@@ -50,11 +53,7 @@ class PromptStore(ArtifactStore):
     @staticmethod
     def _extract_params(data: dict[str, Any]) -> dict[str, Any]:
         """Extract handler params from a YAML data dict."""
-        params: dict[str, Any] = {}
-        for key in _PARAM_KEYS:
-            if key in data:
-                params[key] = data[key]
-        return params
+        return {k: v for k, v in data.items() if k not in _META_KEYS}
 
     def get_raw(self, **selectors: Any) -> tuple[Any, dict[str, Any]]:
         """Load a prompt artifact by name.
