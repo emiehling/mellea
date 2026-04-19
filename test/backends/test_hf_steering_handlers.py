@@ -19,8 +19,24 @@ from mellea.core.steering import Control, ControlCategory
 # --- ActivationSteeringHandler ---
 
 
-def test_activation_steering_registers_hooks():
+def _mock_model(num_layers: int) -> MagicMock:
+    """Create a mock model with *num_layers* layers, each accepting hooks."""
+    mock_layers = [MagicMock() for _ in range(num_layers)]
+    mock_model = MagicMock()
+    mock_model.model.layers = mock_layers
+    for layer in mock_layers:
+        layer.register_forward_hook.return_value = MagicMock()
+    return mock_model
+
+
+def _directions(layer_indices: list[int], dim: int = 64):
+    """Build a ``dict[int, Tensor]`` with distinct vectors per layer."""
     torch = pytest.importorskip("torch")
+    return {i: torch.ones(dim) * (i + 1) for i in layer_indices}
+
+
+def test_activation_steering_registers_hooks():
+    pytest.importorskip("torch")
 
     handler = ActivationSteeringHandler()
     control = Control(
@@ -29,23 +45,14 @@ def test_activation_steering_registers_hooks():
         params={"layers": [0, 1], "coefficient": 1.5},
     )
 
-    # Create a mock model with 3 layers.
-    mock_layers = [MagicMock() for _ in range(3)]
-    mock_model = MagicMock()
-    mock_model.model.layers = mock_layers
+    mock_model = _mock_model(3)
+    directions = _directions([0, 1, 2])
+    hooks = handler.activate(control, mock_model, directions)
 
-    # Each layer's register_forward_hook returns a removable hook.
-    for layer in mock_layers:
-        layer.register_forward_hook.return_value = MagicMock()
-
-    steering_vector = torch.zeros(128)
-    hooks = handler.activate(control, mock_model, steering_vector)
-
-    # Should register hooks on layers 0 and 1 only.
     assert len(hooks) == 2
-    mock_layers[0].register_forward_hook.assert_called_once()
-    mock_layers[1].register_forward_hook.assert_called_once()
-    mock_layers[2].register_forward_hook.assert_not_called()
+    mock_model.model.layers[0].register_forward_hook.assert_called_once()
+    mock_model.model.layers[1].register_forward_hook.assert_called_once()
+    mock_model.model.layers[2].register_forward_hook.assert_not_called()
 
 
 def test_activation_steering_deactivate_removes_hooks():
@@ -57,23 +64,82 @@ def test_activation_steering_deactivate_removes_hooks():
 
 
 def test_activation_steering_default_all_layers():
+    pytest.importorskip("torch")
+
+    handler = ActivationSteeringHandler()
+    control = Control(
+        category=ControlCategory.STATE,
+        name="activation_steering",
+        params={},
+    )
+
+    mock_model = _mock_model(4)
+    directions = _directions([0, 1, 2, 3])
+    hooks = handler.activate(control, mock_model, directions)
+    assert len(hooks) == 4
+
+
+def test_activation_steering_per_layer_uses_correct_vectors():
+    """Each layer's hook receives that layer's specific direction vector."""
     torch = pytest.importorskip("torch")
 
     handler = ActivationSteeringHandler()
     control = Control(
         category=ControlCategory.STATE,
         name="activation_steering",
-        params={},  # No layers specified → all layers.
+        params={"layers": [0, 2], "coefficient": 1.0},
     )
 
-    mock_layers = [MagicMock() for _ in range(4)]
-    mock_model = MagicMock()
-    mock_model.model.layers = mock_layers
-    for layer in mock_layers:
-        layer.register_forward_hook.return_value = MagicMock()
+    mock_model = _mock_model(3)
+    directions = _directions([0, 1, 2], dim=8)
+    handler.activate(control, mock_model, directions)
 
-    hooks = handler.activate(control, mock_model, torch.zeros(64))
-    assert len(hooks) == 4
+    # Extract the hook functions that were registered.
+    hook_0 = mock_model.model.layers[0].register_forward_hook.call_args[0][0]
+    hook_2 = mock_model.model.layers[2].register_forward_hook.call_args[0][0]
+
+    hidden = torch.zeros(1, 1, 8)
+    out_0 = hook_0(None, None, (hidden.clone(),))[0]
+    out_2 = hook_2(None, None, (hidden.clone(),))[0]
+
+    # Layer 0 vector is ones*1, layer 2 vector is ones*3.
+    assert torch.allclose(out_0, torch.ones(1, 1, 8) * 1.0)
+    assert torch.allclose(out_2, torch.ones(1, 1, 8) * 3.0)
+
+
+def test_activation_steering_missing_layer_raises():
+    """Requesting a layer not in the directions dict raises KeyError."""
+    torch = pytest.importorskip("torch")
+
+    handler = ActivationSteeringHandler()
+    control = Control(
+        category=ControlCategory.STATE,
+        name="activation_steering",
+        params={"layers": [5]},
+    )
+
+    mock_model = _mock_model(10)
+    directions = {0: torch.zeros(64), 1: torch.zeros(64)}
+
+    with pytest.raises(KeyError):
+        handler.activate(control, mock_model, directions)
+
+
+def test_activation_steering_rejects_single_tensor():
+    """A single tensor (not a dict) is rejected."""
+    torch = pytest.importorskip("torch")
+
+    handler = ActivationSteeringHandler()
+    control = Control(
+        category=ControlCategory.STATE,
+        name="activation_steering",
+        params={"layers": [0]},
+    )
+
+    mock_model = _mock_model(3)
+
+    with pytest.raises(AssertionError, match="dict"):
+        handler.activate(control, mock_model, torch.zeros(64))
 
 
 # --- AdapterHandler ---

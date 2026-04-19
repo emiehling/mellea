@@ -336,9 +336,14 @@ def test_vector_store_get_and_list(tmp_path):
 
     store = VectorStore(store_path)
 
-    # get_raw returns only handler params (no description/handler)
-    tensor, params = store.get_raw(model="granite", behavior="honesty")
-    assert tensor.shape == (3, hidden_dim)
+    # get_raw returns dict[int, Tensor] and handler params
+    torch = pytest.importorskip("torch")
+    directions, params = store.get_raw(model="granite", behavior="honesty")
+    assert isinstance(directions, dict)
+    assert set(directions.keys()) == {0, 1, 2}
+    for layer_idx, vec in directions.items():
+        assert isinstance(vec, torch.Tensor)
+        assert vec.shape == (hidden_dim,)
     assert params["default_coefficient"] == 1.5
     assert params["transform"] == "additive"
     assert params["default_layers"] == [0, 1]

@@ -51,19 +51,27 @@ class VectorStore(ArtifactStore):
         return desc, handler, params
 
     def get_raw(self, **selectors: Any) -> tuple[Any, dict[str, Any]]:
-        """Load a steering vector by model and behavior.
+        """Load per-layer steering vectors by model and behavior.
 
         Args:
             **selectors: Must include ``model`` (str) and ``behavior`` (str).
 
         Returns:
-            ``(tensor, default_params)`` where tensor is a numpy array of
-            shape ``(num_layers, hidden_dim)`` and default_params contains
-            handler parameters.
+            ``(directions, default_params)`` where directions is a
+            ``dict[int, Tensor]`` mapping layer indices to direction vectors,
+            and default_params contains handler parameters.
 
         Raises:
             KeyError: If no vector matches the selectors.
         """
+        try:
+            import torch
+        except ImportError as e:
+            raise ImportError(
+                "VectorStore.get_raw requires PyTorch. "
+                "Install it with: pip install 'mellea[hf]'"
+            ) from e
+
         model = selectors.get("model")
         behavior = selectors.get("behavior")
         if model is None or behavior is None:
@@ -78,7 +86,10 @@ class VectorStore(ArtifactStore):
                 f"No steering vector found for model={model!r}, behavior={behavior!r}"
             ) from None
 
-        tensor = da.values  # shape: (num_layers, hidden_dim)
+        arr = da.values  # shape: (num_layers, hidden_dim)
+        directions: dict[int, Any] = {}
+        for layer_idx in range(arr.shape[0]):
+            directions[layer_idx] = torch.from_numpy(arr[layer_idx]).float()
 
         attrs = self._ds.attrs if hasattr(self._ds, "attrs") else {}
         meta_key = f"{model}/{behavior}"
@@ -88,7 +99,7 @@ class VectorStore(ArtifactStore):
         else:
             params = {}
 
-        return tensor, params
+        return directions, params
 
     def _build_info_dict(self, m: str, b: str) -> dict[str, Any]:
         """Build an info dict for a (model, behavior) pair."""

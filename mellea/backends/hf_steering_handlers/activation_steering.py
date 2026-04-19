@@ -9,11 +9,10 @@ from .model_layers import get_model_layers
 
 
 class ActivationSteeringHandler(StateControlHandler):
-    """Applies a steering vector to hidden states via forward hooks.
+    """Applies per-layer steering vectors to hidden states via forward hooks.
 
-    The artifact must be a tensor with shape compatible with the model's hidden
-    states. Hooks are registered on the specified layers (or all layers if none
-    are specified) and add the scaled steering vector to the hidden state output.
+    The artifact must be a ``dict[int, Tensor]`` mapping layer indices to their
+    direction vectors; each layer gets its own vector.
 
     Expects ``control.params`` to optionally contain:
 
@@ -25,23 +24,25 @@ class ActivationSteeringHandler(StateControlHandler):
     """
 
     def activate(self, control: Control, model: Any, artifact: Any | None) -> Any:
-        """Register forward hooks that add the steering vector to hidden states.
+        """Register forward hooks that add per-layer steering vectors to hidden states.
 
         Args:
             control: The control descriptor.
             model: A HuggingFace ``PreTrainedModel`` instance.
-            artifact: A tensor (the steering vector).
+            artifact: A ``dict[int, Tensor]`` mapping layer indices to their
+                direction vectors.
 
         Returns:
             A list of hook handles for cleanup.
         """
         import torch
 
-        steering_vector = artifact
-        assert steering_vector is not None, (
-            "ActivationSteeringHandler requires a steering vector artifact"
+        assert artifact is not None and isinstance(artifact, dict), (
+            "ActivationSteeringHandler requires a dict[int, Tensor] artifact "
+            "mapping layer indices to direction vectors"
         )
 
+        directions: dict[int, torch.Tensor] = artifact
         layers_param = control.params.get("layers", None)
         coefficient = control.params.get("coefficient", 1.0)
         token_positions = control.params.get("token_positions", "all")
@@ -57,6 +58,7 @@ class ActivationSteeringHandler(StateControlHandler):
 
         for layer_idx in layer_indices:
             layer = model_layers[layer_idx]
+            sv = directions[layer_idx]
 
             def _make_hook(sv: torch.Tensor, coeff: float, positions: list[int] | str):
                 def hook(module, input, output):
@@ -76,7 +78,7 @@ class ActivationSteeringHandler(StateControlHandler):
                 return hook
 
             h = layer.register_forward_hook(
-                _make_hook(steering_vector, coefficient, token_positions)
+                _make_hook(sv, coefficient, token_positions)
             )
             hooks.append(h)
 
