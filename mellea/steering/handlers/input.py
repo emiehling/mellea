@@ -1,8 +1,9 @@
 """Built-in backend-agnostic input control handlers.
 
-These handlers operate on ``Component`` and ``CBlock`` objects before the formatter
-runs, making them portable across all backends. They are registered globally at
-module load time via ``register_global_input_handler``.
+These handlers operate on the **linearized** context (``list[Component | CBlock]``)
+before the formatter runs, making them portable across all backends and all
+``Context`` subclasses. They are registered globally at module load time via
+``register_global_input_handler``.
 """
 
 from __future__ import annotations
@@ -11,13 +12,13 @@ import random
 from copy import deepcopy
 from typing import Any
 
-from ...core.base import CBlock, Component, Context
+from ...core.base import CBlock, Component
 from ...core.steering import Control, InputControlHandler, register_global_input_handler
 from ...stdlib.components.chat import Message
 
 
 class SystemPromptInjectionHandler(InputControlHandler):
-    """Prepends a system message to the context.
+    """Prepends a system message to the linearized context.
 
     Expects ``control.params`` to contain:
 
@@ -28,23 +29,13 @@ class SystemPromptInjectionHandler(InputControlHandler):
         self,
         control: Control,
         action: Component | CBlock,
-        context: Context,
+        linearized_ctx: list[Component | CBlock],
         artifact: Any | None,
-    ) -> tuple[Component | CBlock, Context]:
-        """Inject a system message into the context.
-
-        Args:
-            control: The control descriptor; ``params["system_prompt"]`` is required.
-            action: The current action (returned unchanged).
-            context: The current generation context.
-            artifact: Unused.
-
-        Returns:
-            The unchanged action and a new context with the system message added.
-        """
+    ) -> tuple[Component | CBlock, list[Component | CBlock]]:
+        """Inject a system message at the front of the linearized context."""
         system_prompt = control.params["system_prompt"]
         system_msg = Message(role="system", content=system_prompt)
-        return action, context.add(system_msg)
+        return action, [system_msg, *linearized_ctx]
 
 
 class InstructionRewriteHandler(InputControlHandler):
@@ -62,21 +53,10 @@ class InstructionRewriteHandler(InputControlHandler):
         self,
         control: Control,
         action: Component | CBlock,
-        context: Context,
+        linearized_ctx: list[Component | CBlock],
         artifact: Any | None,
-    ) -> tuple[Component | CBlock, Context]:
-        """Rewrite an Instruction's description using a template.
-
-        Args:
-            control: The control descriptor; ``params["template"]`` is required.
-            action: The current action. If an ``Instruction``, its description
-                is rewritten; otherwise returned unchanged.
-            context: The current generation context (returned unchanged).
-            artifact: Unused.
-
-        Returns:
-            A ``(action, context)`` tuple with the potentially rewritten action.
-        """
+    ) -> tuple[Component | CBlock, list[Component | CBlock]]:
+        """Rewrite an Instruction's description using a template."""
         from ...stdlib.components.instruction import Instruction
 
         if isinstance(action, Instruction):
@@ -85,12 +65,12 @@ class InstructionRewriteHandler(InputControlHandler):
             rewritten = template.format(original=original_text)
             new_action = deepcopy(action)
             new_action._description = CBlock(rewritten)
-            return new_action, context
-        return action, context
+            return new_action, linearized_ctx
+        return action, linearized_ctx
 
 
 class ContextPrefixHandler(InputControlHandler):
-    """Prepends a user message to the context as grounding/priming.
+    """Prepends a message to the linearized context as grounding/priming.
 
     Expects ``control.params`` to contain:
 
@@ -102,24 +82,14 @@ class ContextPrefixHandler(InputControlHandler):
         self,
         control: Control,
         action: Component | CBlock,
-        context: Context,
+        linearized_ctx: list[Component | CBlock],
         artifact: Any | None,
-    ) -> tuple[Component | CBlock, Context]:
-        """Add a context message as grounding.
-
-        Args:
-            control: The control descriptor; ``params["content"]`` is required.
-            action: The current action (returned unchanged).
-            context: The current generation context.
-            artifact: Unused.
-
-        Returns:
-            The unchanged action and a new context with the message added.
-        """
+    ) -> tuple[Component | CBlock, list[Component | CBlock]]:
+        """Add a context message as grounding."""
         content = control.params["content"]
         role = control.params.get("role", "user")
         msg = Message(role=role, content=content)
-        return action, context.add(msg)
+        return action, [msg, *linearized_ctx]
 
 
 class ICLExampleSelectorHandler(InputControlHandler):
@@ -127,7 +97,8 @@ class ICLExampleSelectorHandler(InputControlHandler):
 
     The artifact should be a list of example strings (as loaded from a
     ``PromptStore`` example pool). Selects ``count`` examples using the
-    specified ``strategy`` and injects them into the context as messages.
+    specified ``strategy`` and injects them into the linearized context
+    as messages.
 
     Expects ``control.params`` to optionally contain:
 
@@ -141,22 +112,12 @@ class ICLExampleSelectorHandler(InputControlHandler):
         self,
         control: Control,
         action: Component | CBlock,
-        context: Context,
+        linearized_ctx: list[Component | CBlock],
         artifact: Any | None,
-    ) -> tuple[Component | CBlock, Context]:
-        """Select examples from the pool and add them to context.
-
-        Args:
-            control: The control descriptor.
-            action: The current action (returned unchanged).
-            context: The current generation context.
-            artifact: A list of example strings from the example pool.
-
-        Returns:
-            The unchanged action and a new context with examples prepended.
-        """
+    ) -> tuple[Component | CBlock, list[Component | CBlock]]:
+        """Select examples from the pool and prepend them to the linearized context."""
         if artifact is None:
-            return action, context
+            return action, linearized_ctx
 
         pool: list[str] = artifact
         count = control.params.get("count", 3)
@@ -170,10 +131,8 @@ class ICLExampleSelectorHandler(InputControlHandler):
         else:
             selected = pool[:count]
 
-        new_context = context
-        for example in selected:
-            new_context = new_context.add(Message(role=role, content=example))
-        return action, new_context
+        examples = [Message(role=role, content=ex) for ex in selected]
+        return action, [*examples, *linearized_ctx]
 
 
 # Register built-in handlers globally at import time.

@@ -303,14 +303,16 @@ class LiteLLMBackend(FormatterBackend):
 
         model_opts = self._simplify_and_merge(model_options)
 
-        # === Steering: apply input controls ===
-        for rc in self.resolved_controls_for_stage(ControlCategory.INPUT):
-            action, ctx = rc.handler.apply(rc.control, action, ctx, rc.artifact)
-
         linearized_context = ctx.view_for_generation()
         assert linearized_context is not None, (
             "Cannot generate from a non-linear context in a FormatterBackend."
         )
+
+        # === Steering: apply input controls (on linearized context) ===
+        for rc in self.resolved_controls_for_stage(ControlCategory.INPUT):
+            action, linearized_context = rc.handler.apply(
+                rc.control, action, linearized_context, rc.artifact
+            )
         # Convert our linearized context into a sequence of chat messages. Template formatters have a standard way of doing this.
         messages: list[Message] = self.formatter.to_chat_messages(linearized_context)
 

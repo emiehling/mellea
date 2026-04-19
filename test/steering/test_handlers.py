@@ -4,7 +4,6 @@ from mellea.core.base import CBlock
 from mellea.core.steering import Control, ControlCategory, get_global_input_handler
 from mellea.stdlib.components.chat import Message
 from mellea.stdlib.components.instruction import Instruction
-from mellea.stdlib.context import ChatContext
 from mellea.steering.handlers import (
     ContextPrefixHandler,
     InstructionRewriteHandler,
@@ -22,18 +21,30 @@ def test_system_prompt_injection_adds_message():
         params={"system_prompt": "You are a helpful assistant."},
     )
     action = CBlock("test action")
-    ctx = ChatContext()
 
-    new_action, new_ctx = handler.apply(control, action, ctx, None)
+    new_action, new_ctx = handler.apply(control, action, [], None)
 
-    # Action unchanged.
     assert new_action is action
-    # Context has a new entry.
-    ctx_list = new_ctx.as_list()
-    assert len(ctx_list) == 1
-    assert isinstance(ctx_list[0], Message)
-    assert ctx_list[0].role == "system"
-    assert ctx_list[0].content == "You are a helpful assistant."
+    assert len(new_ctx) == 1
+    assert isinstance(new_ctx[0], Message)
+    assert new_ctx[0].role == "system"
+    assert new_ctx[0].content == "You are a helpful assistant."
+
+
+def test_system_prompt_injection_prepends_to_existing():
+    handler = SystemPromptInjectionHandler()
+    control = Control(
+        category=ControlCategory.INPUT,
+        name="system_prompt_injection",
+        params={"system_prompt": "Be concise."},
+    )
+    existing = [Message(role="user", content="Hello")]
+
+    _, new_ctx = handler.apply(control, CBlock("action"), existing, None)
+
+    assert len(new_ctx) == 2
+    assert new_ctx[0].role == "system"
+    assert new_ctx[1].role == "user"
 
 
 def test_system_prompt_injection_registered_globally():
@@ -53,15 +64,14 @@ def test_instruction_rewrite_modifies_description():
         params={"template": "Be concise. {original}"},
     )
     instruction = Instruction(description="Write a story.")
-    ctx = ChatContext()
+    ctx_list: list = []
 
-    new_action, new_ctx = handler.apply(control, instruction, ctx, None)
+    new_action, new_ctx = handler.apply(control, instruction, ctx_list, None)
 
     assert isinstance(new_action, Instruction)
     assert "Be concise." in str(new_action._description)
     assert "Write a story." in str(new_action._description)
-    # Context unchanged.
-    assert new_ctx is ctx
+    assert new_ctx is ctx_list
 
 
 def test_instruction_rewrite_leaves_non_instruction_unchanged():
@@ -72,13 +82,12 @@ def test_instruction_rewrite_leaves_non_instruction_unchanged():
         params={"template": "Be concise. {original}"},
     )
     action = CBlock("not an instruction")
-    ctx = ChatContext()
+    ctx_list: list = []
 
-    new_action, new_ctx = handler.apply(control, action, ctx, None)
+    new_action, new_ctx = handler.apply(control, action, ctx_list, None)
 
-    # Action unchanged.
     assert new_action is action
-    assert new_ctx is ctx
+    assert new_ctx is ctx_list
 
 
 def test_instruction_rewrite_registered_globally():
@@ -98,16 +107,14 @@ def test_context_prefix_adds_user_message():
         params={"content": "Consider the following context."},
     )
     action = CBlock("test action")
-    ctx = ChatContext()
 
-    new_action, new_ctx = handler.apply(control, action, ctx, None)
+    new_action, new_ctx = handler.apply(control, action, [], None)
 
     assert new_action is action
-    ctx_list = new_ctx.as_list()
-    assert len(ctx_list) == 1
-    assert isinstance(ctx_list[0], Message)
-    assert ctx_list[0].role == "user"
-    assert ctx_list[0].content == "Consider the following context."
+    assert len(new_ctx) == 1
+    assert isinstance(new_ctx[0], Message)
+    assert new_ctx[0].role == "user"
+    assert new_ctx[0].content == "Consider the following context."
 
 
 def test_context_prefix_with_custom_role():
@@ -118,12 +125,10 @@ def test_context_prefix_with_custom_role():
         params={"content": "System grounding.", "role": "system"},
     )
     action = CBlock("test")
-    ctx = ChatContext()
 
-    _, new_ctx = handler.apply(control, action, ctx, None)
+    _, new_ctx = handler.apply(control, action, [], None)
 
-    ctx_list = new_ctx.as_list()
-    assert ctx_list[0].role == "system"
+    assert new_ctx[0].role == "system"
 
 
 def test_context_prefix_registered_globally():

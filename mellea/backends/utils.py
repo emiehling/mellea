@@ -39,6 +39,47 @@ def get_value(obj: Any, key: str) -> Any:
     return getattr(obj, key, None)
 
 
+def to_chat_from_linearized(
+    action: Component | CBlock,
+    linearized_ctx: list[Component | CBlock],
+    formatter: ChatFormatter,
+    system_prompt: str | None,
+) -> list[Chat]:
+    """Converts a pre-linearized context and action into role/content dicts.
+
+    This is the core conversion used by all formatter-based backends.
+    ``to_chat`` is a thin wrapper that linearizes first.
+
+    Args:
+        action: The next component or CBlock to generate output for.
+        linearized_ctx: The linearized context list (from ``Context.view_for_generation()``).
+        formatter: The chat formatter used to convert context and action to messages.
+        system_prompt: Optional system prompt to prepend.
+
+    Returns:
+        List of role/content dicts suitable for ``apply_chat_template``.
+    """
+    ctx_as_message_list: list[Message] = formatter.to_chat_messages(linearized_ctx)
+    ctx_as_message_list.extend(formatter.to_chat_messages([action]))
+
+    ctx_as_conversation: list = [
+        {"role": m.role, "content": m.content} for m in ctx_as_message_list
+    ]
+
+    for msg in ctx_as_conversation:
+        for v in msg.values():
+            if "CBlock" in v:
+                FancyLogger.get_logger().error(
+                    f"Found the string `CBlock` in what should've been a stringified context: {ctx_as_conversation}"
+                )
+
+    if system_prompt is not None:
+        system_msg: Chat = {"role": "system", "content": system_prompt}
+        ctx_as_conversation.insert(0, system_msg)
+
+    return ctx_as_conversation
+
+
 def to_chat(
     action: Component | CBlock,
     ctx: Context,
@@ -47,7 +88,7 @@ def to_chat(
 ) -> list[Chat]:
     """Converts a context and an action into a series of dicts to be passed to apply_chat_template.
 
-    This function is used by local inference backends.
+    Thin wrapper around ``to_chat_from_linearized`` that linearizes the context first.
 
     Args:
         action: The next component or CBlock to generate output for.
@@ -64,28 +105,7 @@ def to_chat(
     assert linearized_ctx is not None, (
         "If ctx.is_chat_context, then the context should be linearizable."
     )
-    ctx_as_message_list: list[Message] = formatter.to_chat_messages(linearized_ctx)
-    # add action
-    ctx_as_message_list.extend(formatter.to_chat_messages([action]))
-
-    ctx_as_conversation: list = [
-        {"role": m.role, "content": m.content} for m in ctx_as_message_list
-    ]
-
-    # Check that we ddin't accidentally end up with CBlocks.
-    for msg in ctx_as_conversation:
-        for v in msg.values():
-            if "CBlock" in v:
-                FancyLogger.get_logger().error(
-                    f"Found the string `CBlock` in what should've been a stringified context: {ctx_as_conversation}"
-                )
-
-    # handle custom system prompts. It's important that we do this before the _parse_and_**clean**_model_options step.
-    if system_prompt is not None:
-        system_msg: Chat = {"role": "system", "content": system_prompt}
-        ctx_as_conversation.insert(0, system_msg)
-
-    return ctx_as_conversation
+    return to_chat_from_linearized(action, linearized_ctx, formatter, system_prompt)
 
 
 def to_tool_calls(

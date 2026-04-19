@@ -28,6 +28,7 @@ from mellea.core.base import (
     GenerateType,
     ModelOutputThunk,
 )
+from mellea.core.steering import BackendCapabilities
 from mellea.plugins import PluginResult, hook, register
 from mellea.stdlib.context import SimpleContext
 
@@ -44,6 +45,10 @@ class _MockBackend(Backend):
     def __init__(self, *args, **kwargs):
         # Accept but discard constructor arguments; real backends need model_id etc.
         pass
+
+    @property
+    def capabilities(self) -> BackendCapabilities:
+        return BackendCapabilities()
 
     async def _generate_from_context(self, action, ctx, **kwargs):
         mot = MagicMock(spec=ModelOutputThunk)
@@ -768,6 +773,10 @@ class _MockLazyBackend(Backend):
 
     def __init__(self, *args, **kwargs):
         pass
+
+    @property
+    def capabilities(self) -> BackendCapabilities:
+        return BackendCapabilities()
 
     async def _generate_from_context(self, action, ctx, **kwargs):
         import asyncio

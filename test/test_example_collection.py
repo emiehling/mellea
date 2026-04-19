@@ -29,9 +29,12 @@ def test_example_collection_sanity():
         assert filename != "helpers.py", f"helpers.py collected as test: {item}"
         assert filename != "conftest.py", f"conftest.py collected as test: {item}"
 
-    # Sanity floor — we have ~79 examples today; 50 is a safe lower bound
-    assert len(collected) >= 50, (
-        f"Only {len(collected)} examples collected — expected at least 50. "
+    # Sanity floor — examples are filtered by system capabilities (GPU, Ollama,
+    # API keys) during collection, so the count varies by environment.  The
+    # threshold guards against the collection hooks silently dropping *all*
+    # examples, not against a specific backend being unavailable.
+    assert len(collected) >= 10, (
+        f"Only {len(collected)} examples collected — expected at least 10. "
         "Collection hooks may be broken."
     )
 

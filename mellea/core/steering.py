@@ -212,11 +212,15 @@ class Composer(abc.ABC):
 
 
 class InputControlHandler(abc.ABC):
-    """Transforms the action and/or context before the formatter runs.
+    """Transforms the action and/or linearized context before the formatter runs.
 
     Input controls are the most portable category — they operate on
     ``Component`` and ``CBlock`` objects, not model internals, so they work
     on every backend. Handlers are stateless and may be shared across calls.
+
+    Handlers receive the **linearized** context (the output of
+    ``Context.view_for_generation()``) so they are decoupled from the
+    ``Context`` subclass used by the session.
     """
 
     @abc.abstractmethod
@@ -224,20 +228,21 @@ class InputControlHandler(abc.ABC):
         self,
         control: Control,
         action: Component | CBlock,
-        context: Context,
+        linearized_ctx: list[Component | CBlock],
         artifact: Any | None,
-    ) -> tuple[Component | CBlock, Context]:
-        """Apply an input control to the action and context.
+    ) -> tuple[Component | CBlock, list[Component | CBlock]]:
+        """Apply an input control to the action and linearized context.
 
         Args:
             control: The control descriptor with params.
             action: The current action component or content block.
-            context: The current generation context.
+            linearized_ctx: The linearized context — a list of components
+                produced by ``Context.view_for_generation()``.
             artifact: The resolved artifact, or ``None`` if the control
                 has no ``artifact_ref``.
 
         Returns:
-            A ``(action, context)`` tuple, potentially modified.
+            A ``(action, linearized_ctx)`` tuple, potentially modified.
         """
         ...
 

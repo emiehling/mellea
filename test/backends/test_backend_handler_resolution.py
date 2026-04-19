@@ -16,8 +16,8 @@ from mellea.core.steering import (
 
 
 class _TestInputHandler(InputControlHandler):
-    def apply(self, control, action, context, artifact):
-        return action, context
+    def apply(self, control, action, linearized_ctx, artifact):
+        return action, linearized_ctx
 
 
 class _TestOutputHandler(OutputControlHandler):

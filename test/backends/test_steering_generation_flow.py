@@ -18,9 +18,9 @@ class _TrackingInputHandler(InputControlHandler):
     def __init__(self):
         self.calls: list[str] = []
 
-    def apply(self, control, action, context, artifact):
+    def apply(self, control, action, linearized_ctx, artifact):
         self.calls.append(control.name)
-        return action, context
+        return action, linearized_ctx
 
 
 class _TrackingOutputHandler(OutputControlHandler):

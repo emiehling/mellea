@@ -67,7 +67,7 @@ from .tools import (
     add_tools_from_model_options,
     convert_tools_to_json,
 )
-from .utils import to_chat, to_tool_calls
+from .utils import to_chat, to_chat_from_linearized, to_tool_calls
 
 """A configuration type for the unhappy path: Tokenizer * Model * torch device string
 
@@ -992,12 +992,19 @@ class LocalHFBackend(FormatterBackend, AdapterMixin):
         # If the Context is a ChatHistory then we will pretty-print each content as a message and then use apply_chat_template.
         # Otherwise, we will linearize the context and treat it as a raw input.
         if ctx.is_chat_context:
-            # === Steering: apply input controls ===
+            linearized_context = ctx.view_for_generation()
+            assert linearized_context is not None
+
+            # === Steering: apply input controls (on linearized context) ===
             for rc in self.resolved_controls_for_stage(ControlCategory.INPUT):
-                action, ctx = rc.handler.apply(rc.control, action, ctx, rc.artifact)
+                action, linearized_context = rc.handler.apply(
+                    rc.control, action, linearized_context, rc.artifact
+                )
 
             system_prompt = model_options.get(ModelOption.SYSTEM_PROMPT, None)
-            ctx_as_chat = to_chat(action, ctx, self.formatter, system_prompt)
+            ctx_as_chat = to_chat_from_linearized(
+                action, linearized_context, self.formatter, system_prompt
+            )
 
             # Append tool call information if applicable.
             tools: dict[str, AbstractMelleaTool] = dict()

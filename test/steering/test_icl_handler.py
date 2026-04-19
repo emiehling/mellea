@@ -3,7 +3,6 @@
 from mellea.core.base import CBlock
 from mellea.core.steering import Control, ControlCategory, get_global_input_handler
 from mellea.stdlib.components.chat import Message
-from mellea.stdlib.context import ChatContext
 from mellea.steering.handlers import ICLExampleSelectorHandler
 
 
@@ -22,16 +21,14 @@ def test_icl_handler_first_strategy():
     )
     pool = ["example 1", "example 2", "example 3"]
     action = CBlock("test")
-    ctx = ChatContext()
 
-    new_action, new_ctx = handler.apply(control, action, ctx, pool)
+    new_action, new_ctx = handler.apply(control, action, [], pool)
 
     assert new_action is action
-    ctx_list = new_ctx.as_list()
-    assert len(ctx_list) == 2
-    assert isinstance(ctx_list[0], Message)
-    assert ctx_list[0].content == "example 1"
-    assert ctx_list[1].content == "example 2"
+    assert len(new_ctx) == 2
+    assert isinstance(new_ctx[0], Message)
+    assert new_ctx[0].content == "example 1"
+    assert new_ctx[1].content == "example 2"
 
 
 def test_icl_handler_random_strategy():
@@ -43,15 +40,12 @@ def test_icl_handler_random_strategy():
     )
     pool = ["a", "b", "c", "d", "e"]
     action = CBlock("test")
-    ctx = ChatContext()
 
-    new_action, new_ctx = handler.apply(control, action, ctx, pool)
+    new_action, new_ctx = handler.apply(control, action, [], pool)
 
     assert new_action is action
-    ctx_list = new_ctx.as_list()
-    assert len(ctx_list) == 2
-    # All selected examples should come from the pool.
-    for msg in ctx_list:
+    assert len(new_ctx) == 2
+    for msg in new_ctx:
         assert isinstance(msg, Message)
         assert msg.content in pool
 
@@ -63,15 +57,12 @@ def test_icl_handler_defaults():
     )
     pool = ["ex1", "ex2", "ex3", "ex4"]
     action = CBlock("test")
-    ctx = ChatContext()
 
-    _new_action, new_ctx = handler.apply(control, action, ctx, pool)
+    _new_action, new_ctx = handler.apply(control, action, [], pool)
 
-    # Default count is 3, default strategy is "first", default role is "user".
-    ctx_list = new_ctx.as_list()
-    assert len(ctx_list) == 3
-    assert ctx_list[0].content == "ex1"
-    assert ctx_list[0].role == "user"
+    assert len(new_ctx) == 3
+    assert new_ctx[0].content == "ex1"
+    assert new_ctx[0].role == "user"
 
 
 def test_icl_handler_custom_role():
@@ -83,12 +74,10 @@ def test_icl_handler_custom_role():
     )
     pool = ["response example"]
     action = CBlock("test")
-    ctx = ChatContext()
 
-    _, new_ctx = handler.apply(control, action, ctx, pool)
+    _, new_ctx = handler.apply(control, action, [], pool)
 
-    ctx_list = new_ctx.as_list()
-    assert ctx_list[0].role == "assistant"
+    assert new_ctx[0].role == "assistant"
 
 
 def test_icl_handler_none_artifact():
@@ -97,12 +86,12 @@ def test_icl_handler_none_artifact():
         category=ControlCategory.INPUT, name="icl_example_selector", params={"count": 3}
     )
     action = CBlock("test")
-    ctx = ChatContext()
+    ctx_list: list = []
 
-    new_action, new_ctx = handler.apply(control, action, ctx, None)
+    new_action, new_ctx = handler.apply(control, action, ctx_list, None)
 
     assert new_action is action
-    assert new_ctx is ctx
+    assert new_ctx is ctx_list
 
 
 def test_icl_handler_count_exceeds_pool():
@@ -114,9 +103,37 @@ def test_icl_handler_count_exceeds_pool():
     )
     pool = ["only one"]
     action = CBlock("test")
-    ctx = ChatContext()
 
-    _, new_ctx = handler.apply(control, action, ctx, pool)
+    _, new_ctx = handler.apply(control, action, [], pool)
 
-    ctx_list = new_ctx.as_list()
-    assert len(ctx_list) == 1
+    assert len(new_ctx) == 1
+
+
+def test_icl_handler_with_empty_list():
+    handler = ICLExampleSelectorHandler()
+    control = Control(
+        category=ControlCategory.INPUT,
+        name="icl_example_selector",
+        params={"count": 2, "strategy": "first"},
+    )
+    examples = ["Example 1", "Example 2", "Example 3"]
+
+    _, new_ctx = handler.apply(control, CBlock("action"), [], examples)
+
+    assert len(new_ctx) == 2
+
+
+def test_icl_handler_preserves_existing_context():
+    handler = ICLExampleSelectorHandler()
+    control = Control(
+        category=ControlCategory.INPUT,
+        name="icl_example_selector",
+        params={"count": 1, "strategy": "first"},
+    )
+    existing = [Message(role="user", content="existing")]
+
+    _, new_ctx = handler.apply(control, CBlock("action"), existing, ["new example"])
+
+    assert len(new_ctx) == 2
+    assert new_ctx[0].content == "new example"
+    assert new_ctx[1].content == "existing"

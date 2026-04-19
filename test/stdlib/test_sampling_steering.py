@@ -79,8 +79,8 @@ def test_sampling_result_with_steering_policy():
 class _NoOpInputHandler(InputControlHandler):
     """Minimal input handler for testing attach/detach."""
 
-    def apply(self, control, action, context, artifact):
-        return action, context
+    def apply(self, control, action, linearized_ctx, artifact):
+        return action, linearized_ctx
 
 
 def test_backend_attach_detach():

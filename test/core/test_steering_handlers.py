@@ -19,8 +19,8 @@ from mellea.core.steering import (
 
 
 class _MockInputHandler(InputControlHandler):
-    def apply(self, control, action, context, artifact):
-        return action, context
+    def apply(self, control, action, linearized_ctx, artifact):
+        return action, linearized_ctx
 
 
 class _MockStructuralHandler(StructuralControlHandler):
@@ -51,8 +51,9 @@ class _MockOutputHandler(OutputControlHandler):
 def test_input_handler_abc():
     handler = _MockInputHandler()
     c = Control(category=ControlCategory.INPUT, name="test")
-    action_out, ctx_out = handler.apply(c, "action", "ctx", None)
+    action_out, ctx_out = handler.apply(c, "action", [], None)
     assert action_out == "action"
+    assert ctx_out == []
 
 
 # --- StructuralControlHandler ---
