@@ -74,8 +74,8 @@ def _make_library() -> ArtifactLibrary:
                 "model": "granite",
                 "handler": "activation_steering",
                 "default_params": {
-                    "layers": [0, 1, 2],
-                    "coefficient": 1.5,
+                    "layer": 0,
+                    "multiplier": 1.5,
                     "transform": "additive",
                 },
             }
@@ -149,8 +149,8 @@ def test_per_requirement_composer_populates_params_from_defaults():
     assert len(policy.controls) == 1
     ctrl = policy.controls[0]
     assert ctrl.name == "activation_steering"
-    assert ctrl.params["layers"] == [0, 1, 2]
-    assert ctrl.params["coefficient"] == 1.5
+    assert ctrl.params["layer"] == 0
+    assert ctrl.params["multiplier"] == 1.5
     assert ctrl.params["transform"] == "additive"
     assert ctrl.model_family == "granite"
 

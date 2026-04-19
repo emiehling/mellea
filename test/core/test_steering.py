@@ -39,7 +39,7 @@ def test_control_with_all_fields():
     c = Control(
         category=ControlCategory.STATE,
         name="honesty_vector",
-        params={"layers": [10, 11, 12], "alpha": 0.5},
+        params={"layer": 10, "alpha": 0.5},
         artifact_ref="vectors/honesty_v1",
         model_family="granite",
     )

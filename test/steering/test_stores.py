@@ -325,8 +325,8 @@ def test_vector_store_get_and_list(tmp_path):
             "granite/honesty": {
                 "description": "Honesty steering vector",
                 "handler": "activation_steering",
-                "default_layers": [0, 1],
-                "default_coefficient": 1.5,
+                "default_layer": 0,
+                "default_multiplier": 1.5,
                 "transform": "additive",
             }
         },
@@ -344,9 +344,9 @@ def test_vector_store_get_and_list(tmp_path):
     for layer_idx, vec in directions.items():
         assert isinstance(vec, torch.Tensor)
         assert vec.shape == (hidden_dim,)
-    assert params["default_coefficient"] == 1.5
+    assert params["default_multiplier"] == 1.5
     assert params["transform"] == "additive"
-    assert params["default_layers"] == [0, 1]
+    assert params["default_layer"] == 0
     assert "description" not in params
     assert "handler" not in params
 
@@ -431,12 +431,12 @@ def test_vector_store_param_space_round_trip(tmp_path):
             "granite/technicality": {
                 "description": "Technicality vector",
                 "handler": "activation_steering",
-                "default_coefficient": 1.4,
+                "default_multiplier": 1.4,
                 "param_space": {
                     "by_layer": {
-                        "0": {"coefficient": {"min": 0.8, "max": 1.8}},
-                        "1": {"coefficient": {"min": 0.5, "max": 1.0}},
-                    },
+                        "0": {"multiplier": {"min": 0.8, "max": 1.8}},
+                        "1": {"multiplier": {"min": 0.5, "max": 1.0}},
+                    }
                 },
             }
         },
@@ -449,7 +449,7 @@ def test_vector_store_param_space_round_trip(tmp_path):
     # param_space should not leak into default_params
     _, params = store.get_raw(model="granite", behavior="technicality")
     assert "param_space" not in params
-    assert params["default_coefficient"] == 1.4
+    assert params["default_multiplier"] == 1.4
 
     # search should return param_space with int keys normalized
     results = store.search("technicality")
@@ -457,11 +457,11 @@ def test_vector_store_param_space_round_trip(tmp_path):
     ps = results[0]["param_space"]
     assert 0 in ps["by_layer"]
     assert 1 in ps["by_layer"]
-    assert ps["by_layer"][0]["coefficient"]["max"] == 1.8
+    assert ps["by_layer"][0]["multiplier"]["max"] == 1.8
 
     # list_artifacts should also carry param_space
     all_results = store.list_artifacts()
-    assert all_results[0]["param_space"]["by_layer"][1]["coefficient"]["min"] == 0.5
+    assert all_results[0]["param_space"]["by_layer"][1]["multiplier"]["min"] == 0.5
 
 
 def test_vector_store_param_space_empty_when_absent(tmp_path):

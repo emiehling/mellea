@@ -16,11 +16,15 @@ class ActivationSteeringHandler(StateControlHandler):
 
     Expects ``control.params`` to optionally contain:
 
-    - ``layers`` (list[int], optional): Layer indices to hook. Defaults to all layers.
-    - ``coefficient`` (float, optional): Scaling factor for the steering vector.
+    - ``layer`` (int, optional): A single layer index to hook. Defaults to all
+      layers present in the artifact when omitted. To steer multiple layers with
+      different multipliers, use multiple ``state_control``s in the policy.
+    - ``multiplier`` (float, optional): Scaling factor for the steering vector.
       Defaults to ``1.0``.
     - ``token_positions`` (list[int] | str, optional): Which token positions to steer.
       ``"all"`` (default) steers all positions. A list of ints steers only those positions.
+    - ``transform`` (str, optional): How the steering vector is applied to hidden states.
+      Currently only ``"additive"`` is supported (default).
     """
 
     def activate(self, control: Control, model: Any, artifact: Any | None) -> Any:
@@ -43,43 +47,54 @@ class ActivationSteeringHandler(StateControlHandler):
         )
 
         directions: dict[int, torch.Tensor] = artifact
-        layers_param = control.params.get("layers", None)
-        coefficient = control.params.get("coefficient", 1.0)
+        layer_param: int | None = control.params.get("layer", None)
+        multiplier = control.params.get("multiplier", 1.0)
         token_positions = control.params.get("token_positions", "all")
+        transform = control.params.get("transform", "additive")
+
+        if transform != "additive":
+            raise ValueError(
+                f"Unsupported transform: {transform!r}. "
+                f"Currently supported: 'additive'."
+            )
 
         model_layers = get_model_layers(model)
 
-        if layers_param is None:
-            layer_indices = list(range(len(model_layers)))
+        if layer_param is not None:
+            layer_indices = [layer_param]
         else:
-            layer_indices = layers_param
+            layer_indices = sorted(directions.keys())
 
         hooks: list[torch.utils.hooks.RemovableHook] = []
 
         for layer_idx in layer_indices:
+            if layer_idx not in directions:
+                raise KeyError(
+                    f"No steering vector for layer {layer_idx}. "
+                    f"Available layers: {sorted(directions.keys())}"
+                )
+
             layer = model_layers[layer_idx]
             sv = directions[layer_idx]
 
-            def _make_hook(sv: torch.Tensor, coeff: float, positions: list[int] | str):
+            def _make_hook(sv: torch.Tensor, mult: float, positions: list[int] | str):
                 def hook(module, input, output):
                     hidden_states = output[0]
                     if positions == "all":
                         hidden_states = (
-                            hidden_states + sv.to(hidden_states.device) * coeff
+                            hidden_states + sv.to(hidden_states.device) * mult
                         )
                     else:
                         for pos in positions:
                             hidden_states[:, pos, :] = (
                                 hidden_states[:, pos, :]
-                                + sv.to(hidden_states.device) * coeff
+                                + sv.to(hidden_states.device) * mult
                             )
                     return (hidden_states, *output[1:])
 
                 return hook
 
-            h = layer.register_forward_hook(
-                _make_hook(sv, coefficient, token_positions)
-            )
+            h = layer.register_forward_hook(_make_hook(sv, multiplier, token_positions))
             hooks.append(h)
 
         return hooks

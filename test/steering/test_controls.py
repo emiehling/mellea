@@ -35,16 +35,16 @@ def test_structural_control():
 
 
 def test_state_control():
-    c = state_control("honesty_steering", artifact_ref="vectors/v1", layers=[10, 11])
+    c = state_control("honesty_steering", artifact_ref="vectors/v1", layer=10)
     assert c.category == ControlCategory.STATE
     assert c.name == "honesty_steering"
     assert c.artifact_ref == "vectors/v1"
-    assert c.params["layers"] == [10, 11]
+    assert c.params["layer"] == 10
 
 
-def test_state_control_without_layers():
+def test_state_control_without_layer():
     c = state_control("base_steering", artifact_ref="vectors/v1")
-    assert "layers" not in c.params
+    assert "layer" not in c.params
 
 
 def test_static_output_control():

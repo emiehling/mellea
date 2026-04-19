@@ -23,7 +23,7 @@ class VectorStore(ArtifactStore):
 
     Steering vectors are stored as xarray DataArrays in a zarr directory store,
     indexed by ``(model, behavior, layer)`` coordinates. Per-vector defaults
-    (layers, coefficient, positions, transform) are stored as coordinate-level
+    (layer, multiplier, positions, transform) are stored as coordinate-level
     attributes.
 
     Requires ``xarray`` and ``zarr``.
@@ -118,10 +118,7 @@ class VectorStore(ArtifactStore):
         by_layer = raw.get("by_layer")
         if by_layer is None:
             return raw
-        return {
-            **raw,
-            "by_layer": {int(k): v for k, v in by_layer.items()},
-        }
+        return {**raw, "by_layer": {int(k): v for k, v in by_layer.items()}}
 
     def _build_info_dict(self, m: str, b: str) -> dict[str, Any]:
         """Build an info dict for a (model, behavior) pair."""

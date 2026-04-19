@@ -42,16 +42,16 @@ def test_activation_steering_registers_hooks():
     control = Control(
         category=ControlCategory.STATE,
         name="activation_steering",
-        params={"layers": [0, 1], "coefficient": 1.5},
+        params={"layer": 0, "multiplier": 1.5},
     )
 
     mock_model = _mock_model(3)
     directions = _directions([0, 1, 2])
     hooks = handler.activate(control, mock_model, directions)
 
-    assert len(hooks) == 2
+    assert len(hooks) == 1
     mock_model.model.layers[0].register_forward_hook.assert_called_once()
-    mock_model.model.layers[1].register_forward_hook.assert_called_once()
+    mock_model.model.layers[1].register_forward_hook.assert_not_called()
     mock_model.model.layers[2].register_forward_hook.assert_not_called()
 
 
@@ -63,48 +63,47 @@ def test_activation_steering_deactivate_removes_hooks():
         h.remove.assert_called_once()
 
 
-def test_activation_steering_default_all_layers():
+def test_activation_steering_default_uses_artifact_keys():
+    """When layer is omitted, only layers in the artifact are hooked."""
     pytest.importorskip("torch")
 
     handler = ActivationSteeringHandler()
     control = Control(
-        category=ControlCategory.STATE,
-        name="activation_steering",
-        params={},
+        category=ControlCategory.STATE, name="activation_steering", params={}
     )
 
-    mock_model = _mock_model(4)
-    directions = _directions([0, 1, 2, 3])
+    mock_model = _mock_model(10)
+    directions = _directions([2, 5, 7])
     hooks = handler.activate(control, mock_model, directions)
-    assert len(hooks) == 4
+
+    assert len(hooks) == 3
+    mock_model.model.layers[2].register_forward_hook.assert_called_once()
+    mock_model.model.layers[5].register_forward_hook.assert_called_once()
+    mock_model.model.layers[7].register_forward_hook.assert_called_once()
+    mock_model.model.layers[0].register_forward_hook.assert_not_called()
 
 
-def test_activation_steering_per_layer_uses_correct_vectors():
-    """Each layer's hook receives that layer's specific direction vector."""
+def test_activation_steering_correct_vector_for_layer():
+    """The hook receives the direction vector for the specified layer."""
     torch = pytest.importorskip("torch")
 
     handler = ActivationSteeringHandler()
     control = Control(
         category=ControlCategory.STATE,
         name="activation_steering",
-        params={"layers": [0, 2], "coefficient": 1.0},
+        params={"layer": 2, "multiplier": 1.0},
     )
 
     mock_model = _mock_model(3)
     directions = _directions([0, 1, 2], dim=8)
     handler.activate(control, mock_model, directions)
 
-    # Extract the hook functions that were registered.
-    hook_0 = mock_model.model.layers[0].register_forward_hook.call_args[0][0]
-    hook_2 = mock_model.model.layers[2].register_forward_hook.call_args[0][0]
-
+    hook_fn = mock_model.model.layers[2].register_forward_hook.call_args[0][0]
     hidden = torch.zeros(1, 1, 8)
-    out_0 = hook_0(None, None, (hidden.clone(),))[0]
-    out_2 = hook_2(None, None, (hidden.clone(),))[0]
+    out = hook_fn(None, None, (hidden.clone(),))[0]
 
-    # Layer 0 vector is ones*1, layer 2 vector is ones*3.
-    assert torch.allclose(out_0, torch.ones(1, 1, 8) * 1.0)
-    assert torch.allclose(out_2, torch.ones(1, 1, 8) * 3.0)
+    # Layer 2 vector is ones*3 (from _directions helper).
+    assert torch.allclose(out, torch.ones(1, 1, 8) * 3.0)
 
 
 def test_activation_steering_missing_layer_raises():
@@ -113,9 +112,7 @@ def test_activation_steering_missing_layer_raises():
 
     handler = ActivationSteeringHandler()
     control = Control(
-        category=ControlCategory.STATE,
-        name="activation_steering",
-        params={"layers": [5]},
+        category=ControlCategory.STATE, name="activation_steering", params={"layer": 5}
     )
 
     mock_model = _mock_model(10)
@@ -131,15 +128,68 @@ def test_activation_steering_rejects_single_tensor():
 
     handler = ActivationSteeringHandler()
     control = Control(
-        category=ControlCategory.STATE,
-        name="activation_steering",
-        params={"layers": [0]},
+        category=ControlCategory.STATE, name="activation_steering", params={"layer": 0}
     )
 
     mock_model = _mock_model(3)
 
     with pytest.raises(AssertionError, match="dict"):
         handler.activate(control, mock_model, torch.zeros(64))
+
+
+def test_activation_steering_single_layer():
+    """A single layer param hooks exactly one layer."""
+    pytest.importorskip("torch")
+
+    handler = ActivationSteeringHandler()
+    control = Control(
+        category=ControlCategory.STATE,
+        name="activation_steering",
+        params={"layer": 1, "multiplier": 1.5},
+    )
+
+    mock_model = _mock_model(3)
+    directions = _directions([0, 1, 2])
+    hooks = handler.activate(control, mock_model, directions)
+
+    assert len(hooks) == 1
+    mock_model.model.layers[1].register_forward_hook.assert_called_once()
+    mock_model.model.layers[0].register_forward_hook.assert_not_called()
+    mock_model.model.layers[2].register_forward_hook.assert_not_called()
+
+
+def test_activation_steering_unsupported_transform_raises():
+    pytest.importorskip("torch")
+
+    handler = ActivationSteeringHandler()
+    control = Control(
+        category=ControlCategory.STATE,
+        name="activation_steering",
+        params={"transform": "projection"},
+    )
+
+    mock_model = _mock_model(3)
+    directions = _directions([0])
+
+    with pytest.raises(ValueError, match="Unsupported transform"):
+        handler.activate(control, mock_model, directions)
+
+
+def test_activation_steering_additive_transform_explicit():
+    """Explicitly passing transform='additive' works."""
+    pytest.importorskip("torch")
+
+    handler = ActivationSteeringHandler()
+    control = Control(
+        category=ControlCategory.STATE,
+        name="activation_steering",
+        params={"layer": 0, "transform": "additive"},
+    )
+
+    mock_model = _mock_model(3)
+    directions = _directions([0])
+    hooks = handler.activate(control, mock_model, directions)
+    assert len(hooks) == 1
 
 
 # --- AdapterHandler ---
@@ -184,9 +234,7 @@ def test_logits_processor_handler_appends():
     handler = LogitsProcessorHandler()
     mock_processor = MagicMock()
     control = Control(
-        category=ControlCategory.OUTPUT,
-        name="logits_processor",
-        params={},
+        category=ControlCategory.OUTPUT, name="logits_processor", params={}
     )
     gen_kwargs: dict = {}
     result = handler.apply(control, gen_kwargs, mock_processor)
@@ -244,9 +292,7 @@ def test_stopping_criteria_handler_appends():
     handler = StoppingCriteriaHandler()
     mock_criteria = MagicMock()
     control = Control(
-        category=ControlCategory.OUTPUT,
-        name="stopping_criteria",
-        params={},
+        category=ControlCategory.OUTPUT, name="stopping_criteria", params={}
     )
     gen_kwargs: dict = {}
     result = handler.apply(control, gen_kwargs, mock_criteria)

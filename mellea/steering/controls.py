@@ -59,7 +59,7 @@ def state_control(
     name: str,
     *,
     artifact_ref: str,
-    layers: list[int] | None = None,
+    layer: int | None = None,
     params: dict[str, Any] | None = None,
     model_family: str | None = None,
 ) -> Control:
@@ -68,7 +68,8 @@ def state_control(
     Args:
         name: Identifier for this control.
         artifact_ref: Reference to the steering vector or similar artifact.
-        layers: Optional list of layer indices to target.
+        layer: Optional single layer index to target. To steer multiple layers
+            with different multipliers, use multiple ``state_control``s.
         params: Control-specific configuration.
         model_family: Model family this artifact was trained for.
 
@@ -76,8 +77,8 @@ def state_control(
         A ``Control`` with category ``STATE``.
     """
     p: dict[str, Any] = dict(params) if params else {}
-    if layers is not None:
-        p["layers"] = layers
+    if layer is not None:
+        p["layer"] = layer
     return Control(
         category=ControlCategory.STATE,
         name=name,

@@ -25,21 +25,17 @@ def test_artifact_info_creation():
         description="a test vector",
         model="granite",
         handler="activation_steering",
-        default_params={"coefficient": 1.5, "layers": [0, 1, 2]},
+        default_params={"multiplier": 1.5, "layer": 0},
     )
     assert info.name == "test_vec"
     assert info.category == ControlCategory.STATE
     assert info.model == "granite"
     assert info.handler == "activation_steering"
-    assert info.default_params["coefficient"] == 1.5
+    assert info.default_params["multiplier"] == 1.5
 
 
 def test_artifact_info_with_param_space():
-    ps = {
-        "by_layer": {
-            15: {"coefficient": {"min": 0.8, "max": 1.8, "recommended": 1.4}},
-        },
-    }
+    ps = {"by_layer": {15: {"multiplier": {"min": 0.8, "max": 1.8}}}}
     info = ArtifactInfo(
         name="test_vec",
         category=ControlCategory.STATE,
@@ -47,7 +43,7 @@ def test_artifact_info_with_param_space():
         model="granite",
         param_space=ps,
     )
-    assert info.param_space["by_layer"][15]["coefficient"]["recommended"] == 1.4
+    assert info.param_space["by_layer"][15]["multiplier"]["max"] == 1.8
 
 
 def test_artifact_info_defaults():
@@ -120,7 +116,9 @@ class _MockStore(ArtifactStore):
 class _MockStoreWithParamSpace(ArtifactStore):
     """Mock store that includes param_space in search/list results."""
 
-    def __init__(self, items: dict[str, tuple[Any, dict[str, Any], dict[str, Any]]]) -> None:
+    def __init__(
+        self, items: dict[str, tuple[Any, dict[str, Any], dict[str, Any]]]
+    ) -> None:
         self._items = items
 
     def get_raw(self, **selectors: Any) -> tuple[Any, dict[str, Any]]:
@@ -168,12 +166,12 @@ class _MockStoreWithParamSpace(ArtifactStore):
 
 
 def test_library_get_delegates_to_store():
-    store = _MockStore({"honesty": ("vector_data", {"coefficient": 1.5})})
+    store = _MockStore({"honesty": ("vector_data", {"multiplier": 1.5})})
     lib = ArtifactLibrary({ControlCategory.STATE: store})
 
     artifact, default_params = lib.get(ControlCategory.STATE, name="honesty")
     assert artifact == "vector_data"
-    assert default_params["coefficient"] == 1.5
+    assert default_params["multiplier"] == 1.5
 
 
 def test_library_get_raises_for_missing_store():
@@ -231,14 +229,14 @@ def test_library_search_with_category_filter():
 
 def test_library_search_returns_handler_and_params():
     store = _MockStore(
-        {"vec": ("v1", {"_desc": "test", "_handler": "act_steer", "coefficient": 2.0})}
+        {"vec": ("v1", {"_desc": "test", "_handler": "act_steer", "multiplier": 2.0})}
     )
     lib = ArtifactLibrary({ControlCategory.STATE: store})
 
     results = lib.search("test")
     assert len(results) == 1
     assert results[0].handler == "act_steer"
-    assert results[0].default_params == {"coefficient": 2.0}
+    assert results[0].default_params == {"multiplier": 2.0}
 
 
 def test_library_search_threads_param_space():
@@ -247,7 +245,7 @@ def test_library_search_threads_param_space():
             "vec": (
                 "v1",
                 {"_desc": "test", "_handler": "act_steer"},
-                {"by_layer": {15: {"coefficient": {"min": 0.8, "max": 1.8}}}},
+                {"by_layer": {15: {"multiplier": {"min": 0.8, "max": 1.8}}}},
             )
         }
     )
@@ -255,7 +253,7 @@ def test_library_search_threads_param_space():
 
     results = lib.search("test")
     assert len(results) == 1
-    assert results[0].param_space["by_layer"][15]["coefficient"]["max"] == 1.8
+    assert results[0].param_space["by_layer"][15]["multiplier"]["max"] == 1.8
 
 
 def test_library_list_threads_param_space():
@@ -264,7 +262,7 @@ def test_library_list_threads_param_space():
             "vec": (
                 "v1",
                 {"_desc": "test"},
-                {"by_layer": {10: {"coefficient": {"min": 0.5, "max": 1.0}}}},
+                {"by_layer": {10: {"multiplier": {"min": 0.5, "max": 1.0}}}},
             )
         }
     )
@@ -272,7 +270,7 @@ def test_library_list_threads_param_space():
 
     results = lib.list(ControlCategory.STATE)
     assert len(results) == 1
-    assert results[0].param_space["by_layer"][10]["coefficient"]["min"] == 0.5
+    assert results[0].param_space["by_layer"][10]["multiplier"]["min"] == 0.5
 
 
 def test_library_list():
