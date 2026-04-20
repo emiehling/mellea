@@ -119,7 +119,8 @@ class ArtifactLibrary:
         """Search across configured stores for matching artifacts.
 
         Args:
-            query: Substring to match against artifact names and descriptions.
+            query: Keyword or sentence matched word-by-word against artifact
+                names and descriptions.
             category: Optional filter to search only one category's store.
             model: Optional model family filter.
 

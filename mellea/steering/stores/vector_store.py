@@ -13,7 +13,7 @@ try:
 except ImportError:
     _HAS_XARRAY = False
 
-from .base import ArtifactStore
+from .base import ArtifactStore, semantic_match
 
 _META_KEYS = ("description", "handler", "param_space")
 
@@ -143,15 +143,13 @@ class VectorStore(ArtifactStore):
         """Search for steering vectors matching a text query.
 
         Args:
-            query: Substring to match against behavior names and descriptions.
+            query: Keyword or natural-language sentence describing the
+                desired steering behavior.
             model: Optional model family filter.
 
         Returns:
             List of matching artifact metadata dicts.
         """
-        results: list[dict[str, Any]] = []
-        query_lower = query.lower()
-
         models = (
             [model]
             if model is not None
@@ -159,18 +157,18 @@ class VectorStore(ArtifactStore):
         )
         behaviors = [str(b) for b in self._ds.coords["behavior"].values]
 
+        candidates: list[str] = []
+        infos: list[dict[str, Any]] = []
         for m in models:
             if m not in [str(x) for x in self._ds.coords["model"].values]:
                 continue
             for b in behaviors:
                 info = self._build_info_dict(m, b)
-                if (
-                    query_lower in b.lower()
-                    or query_lower in info["description"].lower()
-                ):
-                    results.append(info)
+                candidates.append(f"{b}: {info['description']}")
+                infos.append(info)
 
-        return results
+        matched = semantic_match(query, candidates)
+        return [infos[i] for i in matched]
 
     def list_artifacts(self, **partial_selectors: Any) -> list[dict[str, Any]]:
         """List available steering vectors.

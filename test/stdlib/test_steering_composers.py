@@ -19,7 +19,7 @@ from mellea.stdlib.steering import (
     PerRequirementComposer,
 )
 from mellea.steering.library import ArtifactLibrary, set_default_library
-from mellea.steering.stores.base import ArtifactStore
+from mellea.steering.stores.base import ArtifactStore, semantic_match
 
 # --- Mock store for test artifacts ---
 
@@ -38,16 +38,18 @@ class _TestStore(ArtifactStore):
         raise KeyError(f"not found: {name}")
 
     def search(self, query: str, model: str | None = None) -> list[dict[str, Any]]:
-        results = []
-        query_lower = query.lower()
+        candidates: list[str] = []
+        filtered_items: list[dict[str, Any]] = []
         for item in self._items:
-            desc = item.get("description", "")
             m = item.get("model")
             if model is not None and m is not None and m != model:
                 continue
-            if query_lower in item["name"].lower() or query_lower in desc.lower():
-                results.append(item)
-        return results
+            desc = item.get("description", "")
+            candidates.append(f"{item['name']}: {desc}")
+            filtered_items.append(item)
+
+        matched = semantic_match(query, candidates)
+        return [filtered_items[i] for i in matched]
 
     def list_artifacts(self, **partial_selectors: Any) -> list[dict[str, Any]]:
         return list(self._items)

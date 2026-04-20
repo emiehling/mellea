@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from .base import ArtifactStore
+from .base import ArtifactStore, semantic_match
 
 
 class ModelStore(ArtifactStore):
@@ -72,14 +72,15 @@ class ModelStore(ArtifactStore):
         """Search for output models matching a text query.
 
         Args:
-            query: Substring to match against model names and descriptions.
+            query: Keyword or natural-language sentence describing the
+                desired output model.
             model: Optional model family filter.
 
         Returns:
             List of matching artifact metadata dicts.
         """
-        results: list[dict[str, Any]] = []
-        query_lower = query.lower()
+        candidates: list[str] = []
+        result_dicts: list[dict[str, Any]] = []
 
         for name, entry in self._entries.items():
             desc = entry.get("description", "")
@@ -88,18 +89,19 @@ class ModelStore(ArtifactStore):
             if model is not None and entry_model is not None and entry_model != model:
                 continue
 
-            if query_lower in name.lower() or query_lower in desc.lower():
-                results.append(
-                    {
-                        "name": name,
-                        "description": desc,
-                        "model": entry_model,
-                        "handler": entry.get("handler"),
-                        "default_params": self._extract_params(entry),
-                    }
-                )
+            candidates.append(f"{name}: {desc}")
+            result_dicts.append(
+                {
+                    "name": name,
+                    "description": desc,
+                    "model": entry_model,
+                    "handler": entry.get("handler"),
+                    "default_params": self._extract_params(entry),
+                }
+            )
 
-        return results
+        matched = semantic_match(query, candidates)
+        return [result_dicts[i] for i in matched]
 
     def list_artifacts(self, **partial_selectors: Any) -> list[dict[str, Any]]:
         """List available output models.

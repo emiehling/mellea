@@ -82,13 +82,13 @@ class ActivationSteeringHandler(StateControlHandler):
                     hidden_states = output[0]
                     if positions == "all":
                         hidden_states = (
-                            hidden_states + sv.to(hidden_states.device) * mult
+                            hidden_states + sv.to(device=hidden_states.device, dtype=hidden_states.dtype) * mult
                         )
                     else:
                         for pos in positions:
                             hidden_states[:, pos, :] = (
                                 hidden_states[:, pos, :]
-                                + sv.to(hidden_states.device) * mult
+                                + sv.to(device=hidden_states.device, dtype=hidden_states.dtype) * mult
                             )
                     return (hidden_states, *output[1:])
 

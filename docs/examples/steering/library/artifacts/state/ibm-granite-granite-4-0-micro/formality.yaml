@@ -1,0 +1,16 @@
+model: "ibm-granite/granite-4.0-micro"
+description: "Steers responses toward more formal phrasing."
+handler: activation_steering
+default_params:
+  layer: 6
+  transform: additive
+  multiplier: 1.25
+  token_positions: all
+param_space:
+  by_layer:
+    6:
+      multiplier: {min: -2.75, max: 1.75}
+    17:
+      multiplier: {min: -2.0, max: 2.0}
+    23:
+      multiplier: {min: -1.5, max: 1.75}

@@ -5,9 +5,17 @@ and loading for that category's data shape.
 """
 
 from .adapter_store import AdapterStore
-from .base import ArtifactStore
+from .base import ArtifactStore, semantic_match, set_embedding_model
 from .model_store import ModelStore
 from .prompt_store import PromptStore
 from .vector_store import VectorStore
 
-__all__ = ["AdapterStore", "ArtifactStore", "ModelStore", "PromptStore", "VectorStore"]
+__all__ = [
+    "AdapterStore",
+    "ArtifactStore",
+    "ModelStore",
+    "PromptStore",
+    "VectorStore",
+    "semantic_match",
+    "set_embedding_model",
+]

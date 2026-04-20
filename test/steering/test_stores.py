@@ -6,7 +6,7 @@ import pytest
 import yaml
 
 from mellea.steering.stores.adapter_store import AdapterStore
-from mellea.steering.stores.base import ArtifactStore
+from mellea.steering.stores.base import ArtifactStore, semantic_match
 from mellea.steering.stores.model_store import ModelStore
 from mellea.steering.stores.prompt_store import PromptStore
 
@@ -186,7 +186,7 @@ def test_adapter_store_get_requires_name(adapter_manifest):
 
 def test_adapter_store_search(adapter_manifest):
     store = AdapterStore(adapter_manifest)
-    results = store.search("safe")
+    results = store.search("safe generation")
     assert len(results) == 1
     assert results[0]["name"] == "safety_lora"
     assert results[0]["default_params"]["adapter_name"] == "safety"
@@ -368,6 +368,59 @@ def test_vector_store_get_and_list(tmp_path):
     assert len(empty) == 0
 
 
+def test_vector_store_search_uses_tags(tmp_path):
+    """Search matches against tags, not description boilerplate."""
+    xr = pytest.importorskip("xarray")
+    pytest.importorskip("zarr")
+    np = pytest.importorskip("numpy")
+    from mellea.steering.stores.vector_store import VectorStore
+
+    hidden_dim = 4
+    vectors = np.zeros((1, 2, 2, hidden_dim), dtype=np.float32)
+    da = xr.DataArray(
+        vectors,
+        dims=["model", "behavior", "layer", "hidden"],
+        coords={
+            "model": ["granite"],
+            "behavior": ["formality", "warmth"],
+            "layer": [0, 1],
+        },
+    )
+    ds = xr.Dataset(
+        {"vectors": da},
+        attrs={
+            "granite/formality": {
+                "description": "Steers responses toward more formal phrasing.",
+                "handler": "activation_steering",
+                "tags": ["formal", "formality", "professional"],
+            },
+            "granite/warmth": {
+                "description": "Steers responses toward more warm phrasing.",
+                "handler": "activation_steering",
+                "tags": ["warm", "warmth", "empathetic"],
+            },
+        },
+    )
+    store_path = tmp_path / "tags_test.zarr"
+    ds.to_zarr(store_path)
+
+    store = VectorStore(store_path)
+
+    # "formal" matches formality, not warmth
+    results = store.search("formal")
+    assert any(r["name"] == "granite/formality" for r in results)
+    assert not any(r["name"] == "granite/warmth" for r in results)
+
+    # "warm" matches warmth, not formality
+    results = store.search("warm")
+    assert any(r["name"] == "granite/warmth" for r in results)
+    assert not any(r["name"] == "granite/formality" for r in results)
+
+    # Full sentence: only the relevant vector matches
+    results = store.search("The response should be warm and empathetic")
+    assert any(r["name"] == "granite/warmth" for r in results)
+
+
 def test_vector_store_get_raw_name_fallback(tmp_path):
     """get_raw accepts a composite name= selector, splitting on the last /."""
     xr = pytest.importorskip("xarray")
@@ -514,3 +567,31 @@ def test_vector_store_get_not_found(tmp_path):
     store = VectorStore(store_path)
     with pytest.raises(KeyError, match="No steering vector"):
         store.get_raw(model="granite", behavior="nonexistent")
+
+
+# --- semantic_match ---
+
+
+def test_semantic_match_with_embeddings():
+    """semantic_match returns correct indices via cosine similarity."""
+    candidates = [
+        "formality: Steers responses toward more formal phrasing.",
+        "warmth: Steers responses toward more warm, empathetic phrasing.",
+        "technicality: Steers responses toward more technical, precise phrasing.",
+        "sentiment: Steers responses toward more optimistic, positive phrasing.",
+    ]
+
+    matched = semantic_match(
+        "The response should be formal and professional", candidates
+    )
+    assert 0 in matched
+    assert 1 not in matched
+
+    matched = semantic_match("The response should be warm and empathetic", candidates)
+    assert 1 in matched
+    assert 0 not in matched
+
+
+def test_semantic_match_empty_candidates():
+    """semantic_match returns empty list for empty candidates."""
+    assert semantic_match("anything", []) == []

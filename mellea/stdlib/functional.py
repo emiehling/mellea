@@ -656,8 +656,6 @@ async def aact(
                     tool_calls=tool_calls,
                 )
 
-                if composer is not None:
-                    backend.detach()
                 # Only await and wrap if await_result is True
                 if await_result:
                     await result.avalue()
@@ -670,6 +668,9 @@ async def aact(
                     # Wrap in ComputedModelOutputThunk to indicate it's fully computed
                     computed_result = ComputedModelOutputThunk(result)
                     result = computed_result  # type: ignore
+
+                if composer is not None:
+                    backend.detach()
 
             else:
                 # Always sample if a strategy is provided, even if no requirements were provided.
