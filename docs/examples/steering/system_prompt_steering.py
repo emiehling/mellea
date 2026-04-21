@@ -1,8 +1,8 @@
 # pytest: e2e, hf, qualitative
-"""Minimal steering PoC consisting of an input control and a simple output control.
+"""Minimal example an input control and a simple output control.
 
-This example is to illustrate that the composition operator is completely optional (no steering yields existing behavior), 
-and that existing interventions (like changing the system prompt) can be easily self-contained into a single steering policy.
+This example is to illustrate that the composition operator is optional (no steering yields existing behavior), and that 
+existing interventions (like changing the system prompt) can be easily self-contained into a single steering policy.
 """
 
 from mellea import start_session
@@ -15,12 +15,12 @@ from mellea.steering import (
 )
 from mellea.stdlib.steering import FixedComposer, NoOpComposer
 
-# --
-# Demo: NoOpComposer doesn't change behavior
 
 MODEL = "ibm-granite/granite-4.0-micro"
 PROMPT = "Explain what a mutex is to a new programmer."
-FIXED_OPTS = {"temperature": 0.0, "max_new_tokens": 200}
+TEMP = 0.8
+MAX_NEW_TOKENS = 300
+FIXED_OPTS = {"temperature": TEMP, "max_new_tokens": MAX_NEW_TOKENS}
 
 # baseline; no composer
 m_baseline = start_session("hf", MODEL, model_options=FIXED_OPTS)
@@ -37,9 +37,6 @@ assert str(baseline_output) == str(noop_output), (
 )
 print("Unsteered behavior matches NoOpComposer behavior\n")
 
-# --
-# Demo: steering via system prompt
-
 # define steering policy
 steering_policy = SteeringPolicy(controls=(
     input_control(
@@ -50,8 +47,8 @@ steering_policy = SteeringPolicy(controls=(
     ),
     static_output_control(
         name="static_output",
-        temperature=0.8,
-        max_new_tokens=100
+        temperature=TEMP,
+        max_new_tokens=MAX_NEW_TOKENS
     ),
 ))
 

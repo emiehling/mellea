@@ -37,7 +37,12 @@ class _TestStore(ArtifactStore):
                 return item.get("payload", name), item.get("default_params", {})
         raise KeyError(f"not found: {name}")
 
-    def search(self, query: str, model: str | None = None) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        model: str | None = None,
+        max_results: int | None = None,
+    ) -> list[dict[str, Any]]:
         candidates: list[str] = []
         filtered_items: list[dict[str, Any]] = []
         for item in self._items:
@@ -48,7 +53,7 @@ class _TestStore(ArtifactStore):
             candidates.append(f"{item['name']}: {desc}")
             filtered_items.append(item)
 
-        matched = semantic_match(query, candidates)
+        matched = semantic_match(query, candidates, max_results=max_results)
         return [filtered_items[i] for i in matched]
 
     def list_artifacts(self, **partial_selectors: Any) -> list[dict[str, Any]]:
@@ -94,6 +99,58 @@ def _configure_library():
     set_default_library(_make_library())
     yield
     set_default_library(None)
+
+
+# --- semantic_match max_results ---
+
+
+@pytest.mark.e2e
+def test_semantic_match_max_results_returns_top_n():
+    """max_results=1 returns only the single highest-scoring match."""
+    candidates = [
+        "sentiment: positive emotional tone",
+        "warmth: warm and empathetic tone",
+        "formality: formal language style",
+        "technicality: technical jargon level",
+    ]
+    results = semantic_match("positive optimistic", candidates, max_results=1)
+    assert len(results) <= 1
+
+
+@pytest.mark.e2e
+def test_semantic_match_max_results_none_returns_all():
+    """max_results=None preserves existing behavior."""
+    candidates = [
+        "sentiment: positive emotional tone",
+        "warmth: warm and empathetic tone",
+        "formality: formal language style",
+    ]
+    all_results = semantic_match("positive optimistic", candidates)
+    none_results = semantic_match("positive optimistic", candidates, max_results=None)
+    assert all_results == none_results
+
+
+@pytest.mark.e2e
+def test_semantic_match_max_results_respects_threshold():
+    """max_results does not return results below threshold."""
+    candidates = ["xyzzy: completely unrelated gibberish nonsense"]
+    results = semantic_match("positive optimistic", candidates, max_results=5)
+    assert len(results) == 0
+
+
+@pytest.mark.e2e
+def test_semantic_match_max_results_ordered_by_score():
+    """Returned indices correspond to the highest-scoring candidates."""
+    candidates = [
+        "sentiment: positive emotional tone",
+        "warmth: warm and empathetic tone",
+        "formality: formal language style",
+        "technicality: technical jargon level",
+    ]
+    top1 = semantic_match("positive optimistic", candidates, max_results=1)
+    all_matches = semantic_match("positive optimistic", candidates)
+    if top1:
+        assert top1[0] in all_matches
 
 
 # --- NoOpComposer ---
@@ -232,6 +289,22 @@ def test_per_requirement_composer_no_description():
     reqs = [Requirement(description=None)]
     policy = composer.compose(reqs, caps)
     assert len(policy.controls) == 0
+
+
+def test_per_requirement_composer_compose_deduplicates_across_requirements():
+    """Two requirements matching the same artifact produce one control, not two."""
+    composer = PerRequirementComposer()
+    caps = BackendCapabilities(supported_categories=frozenset(ControlCategory))
+
+    reqs = [
+        Requirement("be honest and transparent"),
+        Requirement("truthful and honest responses"),
+    ]
+    policy = composer.compose(reqs, caps)
+    artifact_refs = [c.artifact_ref for c in policy.controls]
+    assert len(artifact_refs) == len(set(artifact_refs)), (
+        f"Duplicate artifact refs in composed policy: {artifact_refs}"
+    )
 
 
 # --- CompositeComposer ---

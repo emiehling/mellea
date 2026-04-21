@@ -1,11 +1,8 @@
 # pytest: e2e, hf, qualitative
-"""A steering PoC that combines a state control, via a pretrained steering vector, with a given input and output control.
+"""Example that combines a state control, via a precomputed steering vector, with a given input and output control.
 
-reads default_params and param_space from the zarr store.
-
-Builds a three-control policy (INPUT + STATE + OUTPUT) using the technicality
-vector's default layer/multiplier from default_params, then re-runs at
-the max multiplier from param_space to show behavior at the limit of the calibration region.
+Builds a three-control policy (INPUT + STATE + OUTPUT) using the technicality vector's default layer/multiplier from 
+default_params, then re-runs at the max multiplier from param_space to show maximally steered behavior.
 """
 
 from mellea import start_session
@@ -32,7 +29,7 @@ library = ArtifactLibrary()
 library.register_store(ControlCategory.STATE, VectorStore(root=VECTORS_ZARR))
 set_default_library(library)
 
-# Pull metadata (default_params, param_space) from the store
+# pull metadata (default_params, param_space) from the store
 infos = get_default_library().list(ControlCategory.STATE, model="ibm-granite/granite-4.0-micro")
 info = next(i for i in infos if i.name.endswith("/technicality"))
 
@@ -67,7 +64,7 @@ m = start_session(
     MODEL,
     composer=FixedComposer(build_policy(default_layer, multiplier)),
 )
-print(f"[no steering; mulitiplier={multiplier}] {m.instruct(INSTRUCTION)}")
+print(f"[zeroed mulitiplier={multiplier}] {m.instruct(INSTRUCTION)}")
 
 # default configuration from default_params
 default_multiplier = defaults["multiplier"]

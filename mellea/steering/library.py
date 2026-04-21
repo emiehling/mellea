@@ -115,6 +115,7 @@ class ArtifactLibrary:
         query: str,
         category: ControlCategory | None = None,
         model: str | None = None,
+        max_results: int | None = None,
     ) -> list[ArtifactInfo]:
         """Search across configured stores for matching artifacts.
 
@@ -123,6 +124,7 @@ class ArtifactLibrary:
                 names and descriptions.
             category: Optional filter to search only one category's store.
             model: Optional model family filter.
+            max_results: When set, each store returns only the top N matches.
 
         Returns:
             List of ``ArtifactInfo`` discovery records.
@@ -134,7 +136,7 @@ class ArtifactLibrary:
             else self._stores
         )
         for cat, store in stores.items():
-            for raw in store.search(query, model=model):
+            for raw in store.search(query, model=model, max_results=max_results):
                 results.append(
                     ArtifactInfo(
                         name=raw["name"],

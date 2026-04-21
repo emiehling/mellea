@@ -31,12 +31,15 @@ class PerRequirementComposer(Composer):
 
         library = get_default_library()
         controls: list[Control] = []
+        seen_refs: set[str] = set()
         for req in requirements:
             if req.description is None:
                 continue
-            infos = library.search(query=req.description)
+            infos = library.search(query=req.description, max_results=1)
             for info in infos:
                 if info.category not in capabilities.supported_categories:
+                    continue
+                if info.name in seen_refs:
                     continue
                 controls.append(
                     Control(
@@ -47,6 +50,7 @@ class PerRequirementComposer(Composer):
                         model_family=info.model,
                     )
                 )
+                seen_refs.add(info.name)
         return SteeringPolicy(controls=tuple(controls))
 
     def update(
@@ -75,7 +79,7 @@ class PerRequirementComposer(Composer):
         for req, val in validation_results:
             if val.as_bool() or req.description is None:
                 continue
-            infos = library.search(query=req.description)
+            infos = library.search(query=req.description, max_results=1)
             for info in infos:
                 if (
                     info.category in capabilities.supported_categories

@@ -68,13 +68,19 @@ class AdapterStore(ArtifactStore):
         ref = entry.get("ref", entry.get("path", ""))
         return ref, self._extract_params(entry)
 
-    def search(self, query: str, model: str | None = None) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        model: str | None = None,
+        max_results: int | None = None,
+    ) -> list[dict[str, Any]]:
         """Search for adapters matching a text query.
 
         Args:
             query: Keyword or natural-language sentence describing the
                 desired adapter.
             model: Optional model family filter.
+            max_results: When set, return only the top N matches by score.
 
         Returns:
             List of matching artifact metadata dicts.
@@ -100,7 +106,7 @@ class AdapterStore(ArtifactStore):
                 }
             )
 
-        matched = semantic_match(query, candidates)
+        matched = semantic_match(query, candidates, max_results=max_results)
         return [result_dicts[i] for i in matched]
 
     def list_artifacts(self, **partial_selectors: Any) -> list[dict[str, Any]]:

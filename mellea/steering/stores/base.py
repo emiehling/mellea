@@ -44,7 +44,10 @@ def _get_embedder() -> Any:
 
 
 def semantic_match(
-    query: str, candidates: list[str], threshold: float = 0.4
+    query: str,
+    candidates: list[str],
+    threshold: float = 0.4,
+    max_results: int | None = None,
 ) -> list[int]:
     """Return indices of candidates that semantically match the query.
 
@@ -54,6 +57,7 @@ def semantic_match(
         query: The search query (keyword or natural-language sentence).
         candidates: List of candidate texts (e.g. "behavior: description").
         threshold: Minimum cosine similarity for a match.
+        max_results: When set, return only the top N matches by score.
 
     Returns:
         List of integer indices into ``candidates`` that match.
@@ -76,7 +80,11 @@ def semantic_match(
     )
     scores = sentence_transformers.util.cos_sim(query_emb, cand_embs)[0]
 
-    return [i for i, s in enumerate(scores) if s >= threshold]
+    matched = [(i, float(s)) for i, s in enumerate(scores) if s >= threshold]
+    matched.sort(key=lambda x: x[1], reverse=True)
+    if max_results is not None:
+        matched = matched[:max_results]
+    return [i for i, _ in matched]
 
 
 class ArtifactStore(abc.ABC):
@@ -105,7 +113,12 @@ class ArtifactStore(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def search(self, query: str, model: str | None = None) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        model: str | None = None,
+        max_results: int | None = None,
+    ) -> list[dict[str, Any]]:
         """Search for artifacts matching a text query.
 
         Uses :func:`semantic_match` for embedding-based cosine similarity.
@@ -115,6 +128,7 @@ class ArtifactStore(abc.ABC):
             query: Keyword or natural-language sentence describing the
                 desired artifact.
             model: Optional model family filter.
+            max_results: When set, return only the top N matches by score.
 
         Returns:
             List of dicts with at least ``name``, ``description``, and
