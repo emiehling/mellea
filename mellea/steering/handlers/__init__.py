@@ -11,6 +11,7 @@ from .input import (
     SystemPromptInjectionHandler,
 )
 from .output import StaticOutputControlHandler
+from .remote import VLLMSteeringRequestHandler
 
 __all__ = [
     "ContextPrefixHandler",
@@ -18,4 +19,5 @@ __all__ = [
     "InstructionRewriteHandler",
     "StaticOutputControlHandler",
     "SystemPromptInjectionHandler",
+    "VLLMSteeringRequestHandler",
 ]

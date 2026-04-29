@@ -80,6 +80,12 @@ class OpenAIBackend(FormatterBackend):
         default_to_constraint_checking_alora (bool): If ``False``, deactivates aLoRA
             constraint checking; primarily for benchmarking and debugging.
         api_key (str | None): API key; falls back to ``OPENAI_API_KEY`` env var.
+        enable_remote_state_steering (bool): If ``True``, declare ``STATE`` in the
+            backend's capabilities and register a remote activation-steering
+            handler that emits ``extra_body.extra_args.apply_steering_vectors``
+            on each request. Only enable this when the deployment is a
+            steering-capable vLLM endpoint (e.g., vLLM-Hook v2). Defaults to
+            ``False``.
         kwargs: Additional keyword arguments forwarded to the OpenAI client.
 
     Attributes:
@@ -102,6 +108,7 @@ class OpenAIBackend(FormatterBackend):
         *,
         default_to_constraint_checking_alora: bool = True,
         api_key: str | None = None,
+        enable_remote_state_steering: bool = False,
         **kwargs,
     ):
         """Initialize an OpenAI-compatible backend with the given model ID and API credentials."""
@@ -154,6 +161,7 @@ class OpenAIBackend(FormatterBackend):
         }
 
         self.default_to_constraint_checking_alora = default_to_constraint_checking_alora
+        self._enable_remote_state_steering = enable_remote_state_steering
 
         match model_id:
             case str():
@@ -209,6 +217,11 @@ class OpenAIBackend(FormatterBackend):
         from mellea.steering.handlers import StaticOutputControlHandler
 
         self.register_handler("static_output", StaticOutputControlHandler())
+
+        if self._enable_remote_state_steering:
+            from mellea.steering.handlers import VLLMSteeringRequestHandler
+
+            self.register_handler("activation_steering", VLLMSteeringRequestHandler())
 
     @property
     def _async_client(self) -> openai.AsyncOpenAI:
@@ -338,11 +351,19 @@ class OpenAIBackend(FormatterBackend):
 
     @property
     def capabilities(self) -> BackendCapabilities:
-        """Returns capabilities for the OpenAI backend (input and output controls only)."""
+        """Returns the OpenAI backend's steering capabilities.
+
+        ``INPUT`` and ``OUTPUT`` are always supported. ``STATE`` is added when
+        the backend was constructed with ``enable_remote_state_steering=True``,
+        which signals that the remote endpoint accepts vLLM-Hook style steering
+        payloads in ``extra_body.extra_args.apply_steering_vectors``.
+        """
+        cats: set[ControlCategory] = {ControlCategory.INPUT, ControlCategory.OUTPUT}
+        if self._enable_remote_state_steering:
+            cats.add(ControlCategory.STATE)
         return BackendCapabilities(
-            supported_categories=frozenset(
-                {ControlCategory.INPUT, ControlCategory.OUTPUT}
-            )
+            supported_categories=frozenset(cats),
+            extra={"remote_state_steering": self._enable_remote_state_steering},
         )
 
     async def _generate_from_context(
@@ -554,6 +575,13 @@ class OpenAIBackend(FormatterBackend):
         for rc in self.resolved_controls_for_stage(ControlCategory.OUTPUT):
             model_opts = rc.handler.apply(rc.control, model_opts, rc.artifact)
 
+        # === Steering: apply remote state controls ===
+        request_kwargs: dict[str, Any] = {}
+        for rc in self.resolved_controls_for_stage(ControlCategory.STATE):
+            request_kwargs = rc.handler.contribute_to_request(
+                rc.control, request_kwargs, rc.artifact
+            )
+
         chat_response: Coroutine[
             Any, Any, ChatCompletion | openai.AsyncStream[ChatCompletionChunk]
         ] = self._async_client.chat.completions.create(
@@ -566,6 +594,7 @@ class OpenAIBackend(FormatterBackend):
             **self._make_backend_specific_and_remove(
                 model_opts, is_chat_context=ctx.is_chat_context
             ),
+            **request_kwargs,
         )  # type: ignore
 
         output = ModelOutputThunk(None)

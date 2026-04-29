@@ -3220,6 +3220,7 @@ all = [
     { name = "xarray" },
     { name = "xgrammar" },
     { name = "zarr" },
+    { name = "zstandard" },
 ]
 backends = [
     { name = "accelerate" },
@@ -3260,6 +3261,9 @@ hooks = [
 litellm = [
     { name = "boto3" },
     { name = "litellm" },
+]
+remote-steering = [
+    { name = "zstandard" },
 ]
 sandbox = [
     { name = "llm-sandbox", extra = ["docker"] },
@@ -3381,7 +3385,7 @@ requires-dist = [
     { name = "llguidance", marker = "extra == 'hf'" },
     { name = "llm-sandbox", extras = ["docker"], marker = "extra == 'sandbox'", specifier = ">=0.3.23" },
     { name = "math-verify" },
-    { name = "mellea", extras = ["backends", "docling", "tools", "telemetry", "server", "sandbox", "granite-retriever", "hooks", "vectors"], marker = "extra == 'all'" },
+    { name = "mellea", extras = ["backends", "docling", "tools", "telemetry", "server", "sandbox", "granite-retriever", "hooks", "vectors", "remote-steering"], marker = "extra == 'all'" },
     { name = "mellea", extras = ["hooks"], marker = "extra == 'telemetry'" },
     { name = "mellea", extras = ["watsonx", "hf", "litellm"], marker = "extra == 'backends'" },
     { name = "mistletoe", specifier = ">=1.4.0" },
@@ -3410,8 +3414,9 @@ requires-dist = [
     { name = "xarray", marker = "extra == 'vectors'" },
     { name = "xgrammar", marker = "extra == 'hf'" },
     { name = "zarr", marker = "extra == 'vectors'" },
+    { name = "zstandard", marker = "extra == 'remote-steering'" },
 ]
-provides-extras = ["hf", "litellm", "watsonx", "tools", "telemetry", "docling", "granite-retriever", "server", "sandbox", "backends", "vectors", "hooks", "all"]
+provides-extras = ["hf", "litellm", "watsonx", "tools", "telemetry", "docling", "granite-retriever", "server", "sandbox", "backends", "vectors", "remote-steering", "hooks", "all"]
 
 [package.metadata.requires-dev]
 build = [{ name = "pdm", specifier = ">=2.24.0" }]

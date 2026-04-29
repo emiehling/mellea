@@ -104,12 +104,16 @@ vectors = [
     "zarr",
 ]
 
+remote_steering = [
+    "zstandard",
+]
+
 hooks = [
     "cpex>=0.1.0.dev10; python_version >= '3.11'",
     "grpcio>=1.78.0",
 ]
 
-all = ["mellea[backends,docling,tools,telemetry,server,sandbox,granite_retriever,hooks,vectors]"]
+all = ["mellea[backends,docling,tools,telemetry,server,sandbox,granite_retriever,hooks,vectors,remote_steering]"]
 
 [dependency-groups]
 # Development groups: uv sync --all-groups

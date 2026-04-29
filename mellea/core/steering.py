@@ -360,11 +360,43 @@ class OutputControlHandler(abc.ABC):
         ...
 
 
+class RemoteStateControlHandler(abc.ABC):
+    """Contributes a state-steering payload to a remote-backend request body.
+
+    For backends that do not own the model in-process (OpenAI-compatible HTTP,
+    vLLM serve, etc.). Where ``StateControlHandler`` registers forward hooks,
+    this handler builds a JSON-serializable contribution that the backend
+    merges into its request kwargs. Stateless and per-call: there is no
+    activate/deactivate lifecycle because the steering payload lives in the
+    request itself.
+    """
+
+    @abc.abstractmethod
+    def contribute_to_request(
+        self, control: Control, request_kwargs: dict[str, Any], artifact: Any | None
+    ) -> dict[str, Any]:
+        """Merge a steering contribution into request kwargs.
+
+        Args:
+            control: The control descriptor.
+            request_kwargs: Current request kwargs dict (typically including
+                ``extra_body``). The handler should mutate-and-return or
+                return a new dict.
+            artifact: The resolved artifact. For activation steering this is
+                a ``dict[int, Tensor]`` from ``VectorStore.get_raw()``.
+
+        Returns:
+            The updated request kwargs.
+        """
+        ...
+
+
 ControlHandler = (
     InputControlHandler
     | StructuralControlHandler
     | StateControlHandler
     | OutputControlHandler
+    | RemoteStateControlHandler
 )
 """Union of all handler types."""
 

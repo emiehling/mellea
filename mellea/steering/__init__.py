@@ -19,6 +19,7 @@ from .handlers import (
     InstructionRewriteHandler,
     StaticOutputControlHandler,
     SystemPromptInjectionHandler,
+    VLLMSteeringRequestHandler,
 )
 from .library import (
     ArtifactInfo,
@@ -40,6 +41,7 @@ __all__ = [
     "PromptStore",
     "StaticOutputControlHandler",
     "SystemPromptInjectionHandler",
+    "VLLMSteeringRequestHandler",
     "VectorStore",
     "active_output_control",
     "get_default_library",
